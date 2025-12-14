@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
 import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Video, Keyboard, Send } from 'lucide-react';
-import { useChatMessages } from '../bridge/useP1';
+import { useChatMessages } from '../src/bridge/useP1';
 
 interface ChatDetailProps {
   chat: Chat;

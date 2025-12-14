@@ -2,7 +2,7 @@
 import React from 'react';
 import { Chat } from '../types';
 import ChatItem from './ChatItem';
-import { useContactList } from '../bridge/useP1';
+import { useContactList } from '../src/bridge/useP1';
 
 interface ChatListProps {
   onChatClick: (chat: Chat) => void;

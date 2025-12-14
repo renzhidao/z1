@@ -8,7 +8,7 @@ import Moments from './components/Moments';
 import Settings from './components/Settings';
 import PersonalInfo from './components/PersonalInfo';
 import Profile from './components/Profile';
-import Toast from './components/Toast';
+import Toast from './Toast';
 import AddFriend from './components/AddFriend';
 import CreateChat from './components/CreateChat';
 import MyQRCode from './components/MyQRCode';
@@ -21,12 +21,12 @@ import SetTickle from './components/SetTickle';
 import RegionSelect from './components/RegionSelect';
 import GenderSelect from './components/GenderSelect';
 import ChangeName from './components/ChangeName';
-import Signature from './components/Signature';
+import Signature from './Signature';
 import ChangeCover from './components/ChangeCover';
 import { Tab, Chat, User, ToastState } from './types';
-import { initBridge, kernelEvents } from './bridge/ui-adapter';
-import { initKernel } from './kernel/launcher';
-import { mapUser } from './bridge/data-map';
+import { initBridge, kernelEvents } from './src/bridge/ui-adapter';
+import { initKernel } from './src/kernel/launcher';
+import { mapUser } from './src/bridge/data-map';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<Tab>(Tab.CHATS);
