@@ -225,7 +225,6 @@ export const getChatsFromBackend = async (): Promise<Chat[]> => {
 export const getMessagesForChat = async (targetId: string): Promise<Message[]> => {
     let dbList: Message[] = [];
     
-    // 1. Try fetch from DB, but don't fail if DB is missing
     if (window.db) {
         try {
             const msgs = await window.db.getRecent(50, targetId);
@@ -237,12 +236,15 @@ export const getMessagesForChat = async (targetId: string): Promise<Message[]> =
         
     const dbMsgIds = new Set(dbList.map(m => m.id));
     
-    // 2. Intelligent Merging & Deduplication with Cache
+    // Intelligent Merging & Deduplication with Cache
     const pending = tempMsgCache.filter((m: any) => {
         if (m._targetId !== targetId) return false;
+        
+        // 1. Exact ID match (Best)
         if (dbMsgIds.has(m.id)) return false;
         
-        // Fuzzy Deduplication:
+        // 2. Fuzzy Deduplication (Timestamp + Content)
+        // If DB has a message with same sender, type, and content, and timestamp is close, ignore it
         const isDuplicate = dbList.some(dbMsg => 
             dbMsg.senderId === m.senderId &&
             dbMsg.type === m.type &&
@@ -250,7 +252,7 @@ export const getMessagesForChat = async (targetId: string): Promise<Message[]> =
                 (m.type === 'text' && dbMsg.text === m.text) || 
                 (m.type !== 'text') 
             ) &&
-            Math.abs(dbMsg.timestamp.getTime() - m.timestamp.getTime()) < 2000
+            Math.abs(dbMsg.timestamp.getTime() - m.timestamp.getTime()) < 3000 // Widen window slightly
         );
         
         if (isDuplicate) return false;
@@ -267,6 +269,9 @@ export const getMessagesForChat = async (targetId: string): Promise<Message[]> =
 export const sendM3Message = async (text: string, targetId: string, file?: File) => {
     if (!window.protocol) return;
 
+    // Use backend synchronized time for consistency
+    const now = window.util && window.util.now ? new Date(window.util.now()) : new Date();
+    
     const tempId = 'temp_' + Date.now() + Math.random().toString(36).substr(2, 5); 
     
     let type: 'text'|'image'|'file'|'video' = 'text';
@@ -285,11 +290,12 @@ export const sendM3Message = async (text: string, targetId: string, file?: File)
         }
     }
 
+    // Prepare temp message for immediate UI feedback
     const tempMsg: any = {
         id: tempId,
         text: displayText,
         senderId: window.state.myId,
-        timestamp: new Date(),
+        timestamp: now, // Use sync time
         type: type,
         _targetId: targetId,
         originalM3Msg: file ? { meta: { fileName: file.name, fileSize: file.size, fileType: file.type } } : undefined 
@@ -304,62 +310,62 @@ export const sendM3Message = async (text: string, targetId: string, file?: File)
         };
     }
 
+    // Add to cache first for Optimistic UI
     tempMsgCache.push(tempMsg);
-    
-    // Trigger optimistic UI
     window.dispatchEvent(new Event('m3-msg-incoming'));
     
-    // setActiveChat handles the backend logic for 'activeChat', but we call it here to be safe during send
-    // though ChatDetail also maintains it.
-    const prevChat = window.state.activeChat;
-    window.state.activeChat = targetId; 
+    // IMPORTANT: Remove logic that messes with global activeChat.
+    // Instead, pass targetId DIRECTLY to protocol.sendMsg
     
     let pkt = null;
     try {
         if (file) {
             const kind = file.type.startsWith('image') ? 'image' : 'file';
+            // pass targetId as 4th argument
             pkt = await window.protocol.sendMsg(null, kind, {
                 fileObj: file,
                 name: file.name,
                 size: file.size,
                 type: file.type
-            });
+            }, targetId);
         } else {
-            pkt = await window.protocol.sendMsg(text);
+            // pass targetId as 4th argument (2nd is kind, 3rd is meta)
+            pkt = await window.protocol.sendMsg(text, 'text', null, targetId);
         }
     } catch (e) {
-        console.error("Send failed", e);
-        const idx = tempMsgCache.findIndex(m => m.id === tempId);
-        if (idx !== -1) tempMsgCache.splice(idx, 1);
-        window.dispatchEvent(new Event('m3-msg-incoming'));
-        window.state.activeChat = prevChat; 
-        return;
+        console.error("Send failed exception", e);
     }
     
-    window.state.activeChat = prevChat; 
-
-    // Update the cache with the REAL packet ID to prevent duplication
-    if (pkt) {
-        const realMsg = convertM3Msg(pkt, window.state.myId);
+    // If packet creation failed (e.g. rate limit), remove temp message
+    if (!pkt) {
+        console.warn("Send failed (rate limit or error), removing temp msg");
         const idx = tempMsgCache.findIndex(m => m.id === tempId);
-        if (idx !== -1) {
-            // Keep it in cache but update ID, so next getMessagesForChat dedupes it against DB
-            tempMsgCache[idx] = { ...realMsg, _targetId: targetId };
-            
-            // If it was a file, we need to map the new ID to the blob so playing works before redownload
-            if (file) {
-                // Map real ID to the blob too
-                if (!window.virtualFiles) window.virtualFiles = new Map();
-                // Extract the fileId from the pkt metadata if it exists
-                const newFileId = pkt.meta?.fileId;
-                if (newFileId) window.virtualFiles.set(newFileId, file);
-            }
-        } else {
-            (realMsg as any)._targetId = targetId;
-            tempMsgCache.push(realMsg);
-        }
-        window.dispatchEvent(new Event('m3-msg-incoming'));
+        if (idx !== -1) tempMsgCache.splice(idx, 1);
+        window.dispatchEvent(new Event('m3-msg-incoming')); // Re-render to remove it
+        return;
     }
+
+    // Update the cache with the REAL packet ID/Timestamp to prevent duplication once DB saves
+    const realMsg = convertM3Msg(pkt, window.state.myId);
+    const idx = tempMsgCache.findIndex(m => m.id === tempId);
+    if (idx !== -1) {
+        // Keep it in cache but update ID and timestamp to match backend exactly
+        // This ensures the fuzzy deduplication in getMessagesForChat works perfectly
+        tempMsgCache[idx] = { 
+            ...realMsg, 
+            _targetId: targetId,
+            // Keep the blob if needed
+            originalM3Msg: tempMsg.originalM3Msg
+        };
+        
+        if (file) {
+            const newFileId = pkt.meta?.fileId;
+            if (newFileId) window.virtualFiles.set(newFileId, file);
+        }
+    }
+    
+    // Trigger one last update to solidify the ID
+    window.dispatchEvent(new Event('m3-msg-incoming'));
 };
 
 // === New Functionality Exports ===

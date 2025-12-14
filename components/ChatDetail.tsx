@@ -186,6 +186,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     
     // Send to backend
     await sendM3Message(text, chat.id);
+    scrollToBottom();
   };
 
   const handlePlayVoice = (id: string) => {
