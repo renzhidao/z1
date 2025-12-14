@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chat } from '../types';
 import ChatItem from './ChatItem';
+import { deleteChat, markChatRead } from '../services/m3Bridge';
 
 interface ChatListProps {
   chats: Chat[];
@@ -34,18 +35,15 @@ const ChatList: React.FC<ChatListProps> = ({ chats, onChatClick, onChatAction })
     const SCREEN_H = window.innerHeight;
 
     let x = coords.x;
-    let y = coords.y + 10; // Default: Slightly below finger
+    let y = coords.y + 10; 
 
-    // Smart positioning: flip if too close to edges
     if (x + MENU_WIDTH > SCREEN_W - 10) {
       x = x - MENU_WIDTH;
     }
-    // If too close to bottom edge, show upwards
     if (y + MENU_HEIGHT > SCREEN_H - 10) {
       y = coords.y - MENU_HEIGHT - 10;
     }
 
-    // Vibration feedback
     if (navigator.vibrate) navigator.vibrate(50);
 
     setContextMenu({ visible: true, x, y, chat });
@@ -56,18 +54,29 @@ const ChatList: React.FC<ChatListProps> = ({ chats, onChatClick, onChatAction })
   };
 
   const handleAction = (action: string, e: React.MouseEvent | React.TouchEvent) => {
-    // Stop propagation to prevent the backdrop click from firing immediately
     e.stopPropagation();
     
-    if (onChatAction && contextMenu.chat) {
-        onChatAction(action, contextMenu.chat);
+    if (contextMenu.chat) {
+        if (action === 'delete') {
+            deleteChat(contextMenu.chat.id);
+        } else if (action === 'unread') {
+            // Toggle read status logic could be complex, for now we just support marking read
+            if (contextMenu.chat.unreadCount > 0) {
+                markChatRead(contextMenu.chat.id);
+            } else {
+                // Mark unread logic (optional, requires bridge update if needed)
+            }
+        }
+        
+        if (onChatAction) {
+            onChatAction(action, contextMenu.chat);
+        }
     }
     setContextMenu({ ...contextMenu, visible: false });
   };
 
   return (
     <div className="flex flex-col bg-white pb-[60px] min-h-screen relative">
-      {/* Search Bar - Visual Only within list */}
       <div className="px-2 py-2 bg-[#EDEDED]">
         <div className="bg-white rounded-[6px] h-9 flex items-center justify-center text-gray-400 text-[15px] cursor-pointer hover:bg-gray-50 transition-colors">
           <span className="flex items-center gap-1.5">
@@ -86,20 +95,18 @@ const ChatList: React.FC<ChatListProps> = ({ chats, onChatClick, onChatAction })
         />
       ))}
 
-      {/* Context Menu Overlay */}
       {contextMenu.visible && (
         <div 
           className="fixed inset-0 z-[9999]" 
           onClick={closeMenu}
-          onTouchStart={closeMenu} // Close immediately on touch elsewhere
+          onTouchStart={closeMenu} 
         >
-           {/* Menu Card */}
            <div 
              ref={menuRef}
              className="fixed bg-white rounded-[8px] shadow-[0_0_15px_rgba(0,0,0,0.2)] py-1.5 min-w-[150px] overflow-hidden flex flex-col origin-top-left animate-in fade-in zoom-in-95 duration-100"
              style={{ top: contextMenu.y, left: contextMenu.x }}
-             onClick={(e) => e.stopPropagation()} // Prevent clicks inside menu from closing it
-             onTouchStart={(e) => e.stopPropagation()} // CRITICAL: Prevent touch inside menu from triggering backdrop close
+             onClick={(e) => e.stopPropagation()} 
+             onTouchStart={(e) => e.stopPropagation()} 
            >
               <MenuOption 
                 label={contextMenu.chat?.unreadCount ? "标为已读" : "标为未读"} 

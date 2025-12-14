@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { clearLocalData } from '../services/m3Bridge';
 
 interface SettingsProps {
   onBack: () => void;
@@ -73,7 +74,10 @@ const Settings: React.FC<SettingsProps> = ({ onBack, onNavigateToPersonalInfo, o
                </button>
            </div>
            <div className="bg-white border-y border-gray-200/50">
-               <button className="w-full text-[#191919] py-3.5 text-[17px] font-medium active:bg-[#DEDEDE] text-center">
+               <button 
+                 onClick={clearLocalData}
+                 className="w-full text-[#191919] py-3.5 text-[17px] font-medium active:bg-[#DEDEDE] text-center"
+               >
                  退出登录
                </button>
            </div>

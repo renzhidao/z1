@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, QrCode } from 'lucide-react';
 import { User } from '../types';
+import { getMyProfile } from '../services/m3Bridge';
 
 interface PersonalInfoProps {
   onBack: () => void;
@@ -25,15 +26,8 @@ const PersonalInfo: React.FC<PersonalInfoProps> = ({
 }) => {
   const [showAvatarSheet, setShowAvatarSheet] = useState(false);
 
-  // Mock data to match screenshot
-  const profileData = {
-    name: '开心每天',
-    gender: '男',
-    region: '安道尔',
-    phone: '177******43',
-    wechatId: 'cbnlf_qyfx',
-    signature: '未填写'
-  };
+  // Retrieve extended profile info
+  const extendedProfile = getMyProfile();
 
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
@@ -67,11 +61,11 @@ const PersonalInfo: React.FC<PersonalInfoProps> = ({
              </div>
            </div>
 
-           <InfoItem label="名字" value={profileData.name} onClick={onNameClick} />
-           <InfoItem label="性别" value={profileData.gender} onClick={onGenderClick} />
-           <InfoItem label="地区" value={profileData.region} onClick={onRegionClick} />
-           <InfoItem label="手机号" value={profileData.phone} />
-           <InfoItem label="微信号" value={profileData.wechatId} />
+           <InfoItem label="名字" value={currentUser.name} onClick={onNameClick} />
+           <InfoItem label="性别" value={(extendedProfile as any).gender || '未设置'} onClick={onGenderClick} />
+           <InfoItem label="地区" value={(extendedProfile as any).region || '未设置'} onClick={onRegionClick} />
+           <InfoItem label="手机号" value="-" />
+           <InfoItem label="微信号" value={currentUser.wechatId} />
            
            <div 
              onClick={onQRCodeClick}
@@ -85,7 +79,7 @@ const PersonalInfo: React.FC<PersonalInfoProps> = ({
            </div>
 
            <InfoItem label="拍一拍" onClick={onTickleClick} />
-           <InfoItem label="签名" value={profileData.signature} onClick={onSignatureClick} />
+           <InfoItem label="签名" value={(extendedProfile as any).signature || '未填写'} onClick={onSignatureClick} />
         </div>
 
         {/* Group 2 */}

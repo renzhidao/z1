@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
-import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, X, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, FileText } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, X, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, FileText, Play } from 'lucide-react';
 // Explicitly relative path
-import { getMessagesForChat, sendM3Message } from '../services/m3Bridge';
+import { getMessagesForChat, sendM3Message, markChatRead, setActiveChat } from '../services/m3Bridge';
 
 interface ChatDetailProps {
   chat: Chat;
@@ -151,6 +151,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   };
 
   useEffect(() => {
+    // 1. Notify backend we are in this chat to manage unread counts
+    setActiveChat(chat.id);
+    markChatRead(chat.id);
+
     const loadMsgs = async () => {
         const msgs = await getMessagesForChat(chat.id);
         setMessages(msgs);
@@ -161,28 +165,27 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     // Listen for new messages via m3Bridge event
     const handleIncoming = () => loadMsgs();
     window.addEventListener('m3-msg-incoming', handleIncoming);
-    return () => window.removeEventListener('m3-msg-incoming', handleIncoming);
+    
+    return () => {
+        // Reset active chat on exit
+        setActiveChat(null);
+        window.removeEventListener('m3-msg-incoming', handleIncoming);
+    };
   }, [chat.id]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isPlusOpen]);
+  }, [messages.length, isPlusOpen]);
 
   const handleSend = async () => {
     if (!inputValue.trim()) return;
 
-    // Optimistic UI update
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      text: inputValue,
-      senderId: currentUserId,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, newMessage]);
-    setInputValue('');
+    // Bridge handles optimistic updates/deduplication now
+    const text = inputValue;
+    setInputValue(''); // Clear input immediately
     
     // Send to backend
-    await sendM3Message(newMessage.text, chat.id);
+    await sendM3Message(text, chat.id);
   };
 
   const handlePlayVoice = (id: string) => {
@@ -266,18 +269,36 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           const file = e.target.files[0];
           sendM3Message('', chat.id, file);
           setIsPlusOpen(false);
+          // Reset value so same file can be selected again
+          e.target.value = '';
       }
   };
 
   const menuItems = [
-      { icon: <ImageIcon size={24} />, label: '照片', action: () => fileInputRef.current?.click() },
-      { icon: <Camera size={24} />, label: '拍摄', action: () => fileInputRef.current?.click() },
+      { icon: <ImageIcon size={24} />, label: '照片', action: () => {
+          if (fileInputRef.current) {
+              fileInputRef.current.accept = "image/*";
+              fileInputRef.current.click();
+          }
+      }},
+      { icon: <Camera size={24} />, label: '拍摄', action: () => {
+          if (fileInputRef.current) {
+              // Allow both video and image for "Camera" / generic file behavior
+              fileInputRef.current.accept = "image/*,video/*";
+              fileInputRef.current.click();
+          }
+      }},
       { icon: <Video size={24} />, label: '视频通话', action: () => setShowCallMenu(true) },
       { icon: <MapPin size={24} />, label: '位置', action: () => {} },
       { icon: <Wallet size={24} />, label: '红包', action: () => {} },
       { icon: <FolderHeart size={24} />, label: '收藏', action: () => {} },
       { icon: <UserIcon size={24} />, label: '个人名片', action: () => {} },
-      { icon: <Smartphone size={24} />, label: '文件', action: () => fileInputRef.current?.click() },
+      { icon: <Smartphone size={24} />, label: '文件', action: () => {
+          if (fileInputRef.current) {
+              fileInputRef.current.accept = "*/*";
+              fileInputRef.current.click();
+          }
+      }},
   ];
 
   return (
@@ -285,7 +306,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       {/* Header */}
       <header className="flex items-center justify-between px-2 h-[56px] bg-[#EDEDED]/90 backdrop-blur-md border-b border-gray-300/50 shrink-0 z-10">
         <button 
-          onClick={onBack}
+          onClick={() => {
+              // Ensure we mark as read before leaving if user spent time here
+              markChatRead(chat.id);
+              onBack();
+          }}
           className="p-2 -ml-1 text-[#191919] hover:bg-gray-200/50 rounded-full transition-colors flex items-center active:opacity-60"
         >
           <ChevronLeft size={26} strokeWidth={1.5} />
@@ -354,13 +379,21 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                          onPlay={() => handlePlayVoice(msg.id)}
                       />
                    ) : msg.type === 'image' || msg.text.startsWith('[图片]') ? (
-                       // 尝试从 m3 meta 获取图片 URL
                        <div className="bg-gray-100 rounded-[6px] p-1 border border-gray-200">
                            <img 
                                 src={(msg as any).originalM3Msg && window.smartCore ? window.smartCore.play((msg as any).originalM3Msg.meta.fileId) : "https://picsum.photos/seed/chatimg/400/300"} 
                                 className="rounded-[4px] max-w-[200px]" 
                                 alt="Chat Image" 
                                 onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Image+Load+Error' }}
+                           />
+                       </div>
+                   ) : msg.type === 'video' || msg.text.startsWith('[视频]') ? (
+                       <div className="bg-black rounded-[6px] overflow-hidden relative max-w-[200px] border border-gray-300">
+                           <video 
+                               src={(msg as any).originalM3Msg && window.smartCore ? window.smartCore.play((msg as any).originalM3Msg.meta.fileId, (msg as any).originalM3Msg.meta.fileName) : ""}
+                               controls
+                               className="w-full max-h-[300px] object-cover"
+                               preload="metadata"
                            />
                        </div>
                    ) : (
@@ -494,6 +527,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         )}
       </div>
       
+      {/* Hidden file input that accepts images and videos */}
       <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
 
        {showCallMenu && (

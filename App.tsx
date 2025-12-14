@@ -38,11 +38,21 @@ export function App() {
   const [fsCheckList, setFsCheckList] = useState<{path: string, status: string, ok: boolean}[]>([]);
   const [showForceEnter, setShowForceEnter] = useState(false);
 
+  // Dynamic User State
+  const [currentUser, setCurrentUser] = useState<User>({
+    id: 'me', 
+    name: '加载中...', 
+    avatar: 'https://picsum.photos/seed/me/200/200', 
+    wechatId: 'loading...', 
+    region: 'P1 网络' 
+  });
+
   // Initialize M3 Backend
   useEffect(() => {
     // 1. File System Diagnostic Check
     const checkFiles = async () => {
-        const base = import.meta.env.BASE_URL || './';
+        // Fix: Safe access for env
+        const base = (import.meta as any)?.env?.BASE_URL || './';
         const paths = [
             `${base}m3-1/loader.js`,
             `${base}m3-1/config.json`
@@ -75,6 +85,7 @@ export function App() {
         await initBackend((status) => setBootStatus(status));
         setIsBackendReady(true);
         refreshChats();
+        refreshSelf();
     };
     startUp();
 
@@ -84,15 +95,18 @@ export function App() {
     // Listen for M3 Events
     const handleListUpdate = () => refreshChats();
     const handleMsgIncoming = () => refreshChats(); 
+    const handleSelfUpdate = () => refreshSelf();
     
     window.addEventListener('m3-list-update', handleListUpdate);
     window.addEventListener('m3-msg-incoming', handleMsgIncoming);
+    window.addEventListener('m3-self-update', handleSelfUpdate);
     
     const timer = setInterval(refreshChats, 5000);
 
     return () => {
         window.removeEventListener('m3-list-update', handleListUpdate);
         window.removeEventListener('m3-msg-incoming', handleMsgIncoming);
+        window.removeEventListener('m3-self-update', handleSelfUpdate);
         clearInterval(timer);
         clearTimeout(forceTimer);
     };
@@ -107,6 +121,17 @@ export function App() {
           return a.isPinned ? -1 : 1;
       });
       setChatList(sorted);
+  };
+
+  const refreshSelf = () => {
+      if (!window.state) return;
+      setCurrentUser({
+          id: window.state.myId,
+          name: window.state.myName,
+          avatar: 'https://picsum.photos/seed/me/200/200',
+          wechatId: window.state.myId ? window.state.myId.slice(0, 8) : '...',
+          region: window.state.mqttStatus === '在线' ? 'P1 网络 (在线)' : 'P1 网络 (离线)'
+      });
   };
 
   // Navigation Stacks
@@ -137,15 +162,6 @@ export function App() {
 
   // Global Feedback
   const [toast, setToast] = useState<ToastState>({ show: false, message: '' });
-
-  // Define the "Me" user dynamically
-  const myUser: User = { 
-    id: window.state?.myId || 'me', 
-    name: window.state?.myName || '我', 
-    avatar: 'https://picsum.photos/seed/me/200/200', 
-    wechatId: window.state?.myId ? window.state.myId.slice(0,8) : 'loading...', 
-    region: 'P1 网络' 
-  };
 
   // Contacts Data Grouped (Mock for now, can be mapped from m3 later)
   const contactsGrouped = [
@@ -196,7 +212,7 @@ export function App() {
   };
 
   const handleUserClick = (user: User) => {
-    if (user.id === myUser.id) {
+    if (user.id === currentUser.id) {
         setShowPersonalInfo(true);
     } else {
         setSelectedUser(user);
@@ -373,17 +389,17 @@ export function App() {
                className="bg-white pt-10 pb-8 px-6 mb-2 flex items-center cursor-pointer active:bg-[#FAFAFA]"
              >
                 <img 
-                  src={myUser.avatar} 
+                  src={currentUser.avatar} 
                   className="w-16 h-16 rounded-[8px] mr-4 bg-gray-200" 
                   onClick={() => setShowPersonalInfo(true)}
                 />
                 <div className="flex-1">
                    <div className="flex items-center justify-between" onClick={() => setShowPersonalInfo(true)}>
-                      <h2 className="text-[20px] font-semibold text-[#191919] mb-1.5">{myUser.name}</h2>
+                      <h2 className="text-[20px] font-semibold text-[#191919] mb-1.5">{currentUser.name}</h2>
                    </div>
                    <div className="flex items-center justify-between">
                       <div className="flex flex-col" onClick={() => setShowPersonalInfo(true)}>
-                         <span className="text-[15px] text-gray-500 mb-2">ID：{myUser.wechatId}</span>
+                         <span className="text-[15px] text-gray-500 mb-2">ID：{currentUser.wechatId}</span>
                          <button 
                            onClick={(e) => { e.stopPropagation(); setShowStatus(true); }}
                            className="flex items-center gap-1 border border-gray-300 rounded-[14px] px-2 py-0.5 w-fit"
@@ -485,10 +501,10 @@ export function App() {
           <ChatDetail 
             chat={selectedChat} 
             onBack={() => setSelectedChat(null)} 
-            currentUserId={myUser.id}
+            currentUserId={currentUser.id}
             onShowToast={(msg) => showToast(msg)}
             onUserClick={() => { 
-                if (selectedChat.user.id !== myUser.id) {
+                if (selectedChat.user.id !== currentUser.id) {
                     setSelectedUser(selectedChat.user);
                 } else {
                     setShowPersonalInfo(true);
@@ -505,7 +521,7 @@ export function App() {
         <div className="fixed inset-0 z-50">
           <Moments 
             onBack={() => setShowMoments(false)} 
-            onUserClick={(u) => { if(u.id === myUser.id) setShowPersonalInfo(true); else setSelectedUser(u); }}
+            onUserClick={(u) => { if(u.id === currentUser.id) setShowPersonalInfo(true); else setSelectedUser(u); }}
             onChangeCover={() => setShowChangeCover(true)}
           />
         </div>
@@ -538,7 +554,7 @@ export function App() {
         <div className="fixed inset-0 z-50">
           <PersonalInfo 
              onBack={() => setShowPersonalInfo(false)} 
-             currentUser={myUser} 
+             currentUser={currentUser} 
              onQRCodeClick={() => setShowQRCode(true)}
              onNameClick={() => setShowChangeName(true)}
              onGenderClick={() => setShowGenderSelect(true)}
@@ -556,14 +572,14 @@ export function App() {
       {showSetTickle && <SetTickle onBack={() => setShowSetTickle(false)} />}
       {showRegionSelect && <RegionSelect onBack={() => setShowRegionSelect(false)} />}
       {showGenderSelect && <GenderSelect onBack={() => setShowGenderSelect(false)} />}
-      {showChangeName && <ChangeName onBack={() => setShowChangeName(false)} initialName={myUser.name} />}
+      {showChangeName && <ChangeName onBack={() => setShowChangeName(false)} initialName={currentUser.name} />}
       {showSignature && <Signature onBack={() => setShowSignature(false)} />}
       {showChangeCover && <ChangeCover onBack={() => setShowChangeCover(false)} />}
 
       {/* Function Overlays */}
       {showAddFriend && (
         <div className="fixed inset-0 z-50">
-           <AddFriend onBack={() => setShowAddFriend(false)} myWechatId={myUser.wechatId || ''} />
+           <AddFriend onBack={() => setShowAddFriend(false)} myWechatId={currentUser.wechatId || ''} />
         </div>
       )}
 
@@ -578,7 +594,7 @@ export function App() {
 
       {showQRCode && (
         <div className="fixed inset-0 z-50">
-           <MyQRCode onBack={() => setShowQRCode(false)} user={myUser} />
+           <MyQRCode onBack={() => setShowQRCode(false)} user={currentUser} />
         </div>
       )}
       

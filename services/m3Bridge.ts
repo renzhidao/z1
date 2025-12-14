@@ -1,19 +1,18 @@
 import { Chat, Message, User } from '../types';
 
 // === 补丁: 发送消息缓冲池 (解决DB落盘延迟导致消息“不上屏”或被覆盖) ===
-const tempMsgCache: Message[] = [];
-// 清理超过 10 秒的缓存消息，避免堆积
+const tempMsgCache: (Message & { _targetId?: string })[] = [];
+
+// 清理超过 30 秒的缓存消息
 setInterval(() => {
     const now = Date.now();
     for(let i = tempMsgCache.length - 1; i >= 0; i--) {
-        if (now - tempMsgCache[i].timestamp.getTime() > 10000) {
+        if (now - tempMsgCache[i].timestamp.getTime() > 30000) {
             tempMsgCache.splice(i, 1);
         }
     }
 }, 5000);
 
-
-// 定义 window 上的 m3 全局对象类型
 declare global {
   interface Window {
     state: any;
@@ -26,49 +25,33 @@ declare global {
     app: any;
     m3BaseUrl: string; 
     m3_boot_status: string;
+    virtualFiles: any;
   }
 }
 
-/**
- * 初始化 m3-1 后端
- * @param onStatusCallback Optional callback to receive boot status updates
- */
 export const initBackend = async (onStatusCallback?: (status: string) => void) => {
-  // 1. 立即检查：如果 index.html 里的 loader 已经跑完了，直接通过
   if (window.state && window.state.myId && window.p2p) {
-      console.log('🚀 Backend already running (Pre-loaded)');
       if (onStatusCallback) onStatusCallback('系统就绪 (已预加载)');
       return; 
   }
-
   if (window.app) return; 
 
   console.log('🚀 Waiting for M3 Backend...');
   
-  // Fallback: 只有在完全没动静时才尝试手动注入
   const fallbackTimer = setTimeout(() => {
-      // 只要有 state 或 boot_status，说明已经开始加载了，不要重复注入导致报错
       const isAlive = window.state || window.m3_boot_status;
-      
       if (!isAlive) {
-          console.warn('⚠️ Loader not detected, injecting manually...');
           if (onStatusCallback) onStatusCallback('正在尝试手动注入后端...');
-          
           const script = document.createElement('script');
           script.type = 'module';
-          const base = import.meta.env.BASE_URL || './';
-           script.src = `${base}m3-1/loader.js?t=${Date.now()}`; // 以 BASE_URL 为锚点，兼容 GitHub Pages 子路径
-          
+          // Fix: Safe access for env
+          const base = (import.meta as any)?.env?.BASE_URL || './';
+           script.src = `${base}m3-1/loader.js?t=${Date.now()}`;
           script.onload = () => console.log('✅ Manual injection loaded');
-          script.onerror = (e) => {
-              // 失败通常是因为路径不对，但这不影响如果 HTML 里的 script 已经成功的情况
-              console.warn('Manual injection skipped/failed', e);
-          };
           document.body.appendChild(script);
       }
   }, 2000);
 
-  // 轮询检测后端是否就绪
   return new Promise<void>((resolve) => {
       let lastStatus = '';
       const check = () => {
@@ -77,15 +60,10 @@ export const initBackend = async (onStatusCallback?: (status: string) => void) =
               lastStatus = currentStatus;
               onStatusCallback(currentStatus);
           }
-
-          // === 关键修改：极速检测 ===
-          // 只要 P2P 模块存在且生成了 ID，或者 MQTT 连上了，就视为可用
-          // 不再等待 window.app 完全初始化，因为那可能是异步的
           const p2pReady = window.state && window.state.myId && window.p2p;
           const mqttReady = window.state && window.state.mqttStatus === '在线';
           
           if (p2pReady || mqttReady || window.app) {
-              console.log('✅ M3 Backend Detected');
               clearTimeout(fallbackTimer);
               if (onStatusCallback) onStatusCallback('系统就绪');
               resolve();
@@ -97,22 +75,26 @@ export const initBackend = async (onStatusCallback?: (status: string) => void) =
   });
 };
 
-/**
- * 将 m3 的消息对象转换为 React 组件需要的 Message 类型
- */
 const convertM3Msg = (m3Msg: any, currentUserId: string): Message => {
-  let type: 'text' | 'image' | 'voice' = 'text';
-  let text = m3Msg.txt;
+  let type: 'text' | 'image' | 'voice' | 'video' = 'text';
+  // Ensure text is never undefined, handling protocol messages that might lack 'txt'
+  let text = m3Msg.txt || '';
 
   if (m3Msg.kind === 'image') {
       type = 'image';
   } else if (m3Msg.kind === 'SMART_FILE_UI') {
-      if (m3Msg.meta?.fileType?.startsWith('audio')) {
+      const fileType = (m3Msg.meta?.fileType || '').toLowerCase();
+      const fileName = (m3Msg.meta?.fileName || '').toLowerCase();
+
+      if (fileType.startsWith('audio')) {
           type = 'voice';
           text = `[语音] ${m3Msg.meta.fileName}`;
-      } else if (m3Msg.meta?.fileType?.startsWith('image')) {
+      } else if (fileType.startsWith('image')) {
           type = 'image';
           text = `[图片] ${m3Msg.meta.fileName}`; 
+      } else if (fileType.startsWith('video') || fileName.endsWith('.mp4') || fileName.endsWith('.mov')) {
+          type = 'video';
+          text = `[视频] ${m3Msg.meta.fileName}`;
       } else {
           text = `[文件] ${m3Msg.meta?.fileName || '未知文件'}`;
       }
@@ -128,23 +110,44 @@ const convertM3Msg = (m3Msg: any, currentUserId: string): Message => {
   } as any;
 };
 
-/**
- * 获取聊天列表数据适配器
- */
-export const getChatsFromBackend = async (): Promise<Chat[]> => {
-  // 防御性编程：如果后端还没好，返回空，不报错
-  if (!window.state) return [];
-  if (!window.db) return []; // DB 可能比 State 晚一点点初始化
+export const setActiveChat = (chatId: string | null) => {
+    if (window.state) {
+        window.state.activeChat = chatId;
+        // Also ensure unread count is cleared when entering
+        if (chatId && window.state.unread) {
+            window.state.unread[chatId] = 0;
+        }
+    }
+};
 
+export const getChatsFromBackend = async (): Promise<Chat[]> => {
+  if (!window.state) return [];
+  // DB might not be ready, but we still want to render what we can from state/cache
+  
   const myId = window.state.myId;
   const chats: Chat[] = [];
 
-  // 1. 公共频道
+  // 1. Public Channel
   const pubUnread = window.state.unread ? (window.state.unread['all'] || 0) : 0;
-  let pubLastMsg = [];
-  try {
-      pubLastMsg = await window.db.getRecent(1, 'all');
-  } catch(e) { /* ignore db error during boot */ }
+  let pubLastMsg = null;
+  
+  if (window.db) {
+      try {
+          const dbMsgs = await window.db.getRecent(1, 'all');
+          pubLastMsg = dbMsgs[0];
+      } catch(e) {}
+  }
+
+  const cachedPubMsg = tempMsgCache.filter(m => (m as any)._targetId === 'all').sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime())[0];
+  if (cachedPubMsg) {
+      if (!pubLastMsg || cachedPubMsg.timestamp.getTime() > pubLastMsg.ts) {
+          pubLastMsg = {
+              txt: cachedPubMsg.text,
+              ts: cachedPubMsg.timestamp.getTime(),
+              kind: cachedPubMsg.type === 'image' ? 'image' : (cachedPubMsg.type === 'video' ? 'SMART_FILE_UI' : 'text')
+          };
+      }
+  }
   
   chats.push({
     id: 'all',
@@ -154,14 +157,14 @@ export const getChatsFromBackend = async (): Promise<Chat[]> => {
       avatar: 'https://picsum.photos/seed/public/200/200', 
       region: 'Public'
     },
-    lastMessage: pubLastMsg[0] ? pubLastMsg[0].txt : '暂无消息',
-    timestamp: pubLastMsg[0] ? formatTime(pubLastMsg[0].ts) : '',
+    lastMessage: pubLastMsg ? (pubLastMsg.kind === 'image' ? '[图片]' : (pubLastMsg.txt && pubLastMsg.txt.startsWith('[视频]') ? '[视频]' : (pubLastMsg.txt || ''))) : '暂无消息',
+    timestamp: pubLastMsg ? formatTime(pubLastMsg.ts) : '',
     unreadCount: pubUnread,
     isMuted: false,
     messages: [] 
   });
 
-  // 2. 私聊会话
+  // 2. Private Chats
   const contactIds = new Set([
       ...Object.keys(window.state.conns || {}),
       ...Object.keys(window.state.contacts || {}),
@@ -177,10 +180,26 @@ export const getChatsFromBackend = async (): Promise<Chat[]> => {
       const unread = window.state.unread[cid] || 0;
       
       let lastMsg = null;
-      try {
-          const lastMsgs = await window.db.getRecent(1, cid);
-          lastMsg = lastMsgs[0];
-      } catch(e) {}
+      if (window.db) {
+          try {
+              const lastMsgs = await window.db.getRecent(1, cid);
+              lastMsg = lastMsgs[0];
+          } catch(e) {}
+      }
+
+      const cachedPrivMsg = tempMsgCache.filter(m => (m as any)._targetId === cid).sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime())[0];
+      if (cachedPrivMsg) {
+          if (!lastMsg || cachedPrivMsg.timestamp.getTime() > lastMsg.ts) {
+              lastMsg = {
+                  txt: cachedPrivMsg.text,
+                  ts: cachedPrivMsg.timestamp.getTime(),
+                  kind: cachedPrivMsg.type === 'image' ? 'image' : 'text'
+              };
+          }
+      }
+
+      // Hide chats that have no history and are not online (unless they are contacts)
+      if (!contact.n && !isOnline && !lastMsg && unread === 0) continue;
 
       const name = contact.n || cid.slice(0, 6);
 
@@ -192,7 +211,7 @@ export const getChatsFromBackend = async (): Promise<Chat[]> => {
               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${cid}`,
               region: isOnline ? '在线' : '离线'
           },
-          lastMessage: lastMsg ? (lastMsg.kind === 'image' ? '[图片]' : lastMsg.txt) : (isOnline ? '[已连接]' : ''),
+          lastMessage: lastMsg ? (lastMsg.kind === 'image' ? '[图片]' : (lastMsg.txt || '')) : (isOnline ? '[已连接]' : ''),
           timestamp: lastMsg ? formatTime(lastMsg.ts) : '',
           unreadCount: unread,
           isMuted: false,
@@ -203,52 +222,95 @@ export const getChatsFromBackend = async (): Promise<Chat[]> => {
   return chats;
 };
 
-/**
- * 获取单个会话的详细消息
- */
 export const getMessagesForChat = async (targetId: string): Promise<Message[]> => {
-    if (!window.db) return [];
-    try {
-        const msgs = await window.db.getRecent(50, targetId);
-        // 1. 转换 DB 消息 (注意：db.getRecent 通常返回倒序或正序，我们统一转换后重排)
-        let list = msgs.map((m: any) => convertM3Msg(m, window.state.myId));
+    let dbList: Message[] = [];
+    
+    // 1. Try fetch from DB, but don't fail if DB is missing
+    if (window.db) {
+        try {
+            const msgs = await window.db.getRecent(50, targetId);
+            dbList = msgs.map((m: any) => convertM3Msg(m, window.state.myId));
+        } catch(e) {
+            console.error("DB Read Failed:", e);
+        }
+    }
         
-        // 2. 合并缓冲池 (匹配 targetId 且去重)
-        const dbMsgIds = new Set(list.map(m => m.id));
-        const pending = tempMsgCache.filter((m: any) => {
-            return m._targetId === targetId && !dbMsgIds.has(m.id);
-        });
+    const dbMsgIds = new Set(dbList.map(m => m.id));
+    
+    // 2. Intelligent Merging & Deduplication with Cache
+    const pending = tempMsgCache.filter((m: any) => {
+        if (m._targetId !== targetId) return false;
+        if (dbMsgIds.has(m.id)) return false;
         
-        list = [...list, ...pending];
+        // Fuzzy Deduplication:
+        const isDuplicate = dbList.some(dbMsg => 
+            dbMsg.senderId === m.senderId &&
+            dbMsg.type === m.type &&
+            (
+                (m.type === 'text' && dbMsg.text === m.text) || 
+                (m.type !== 'text') 
+            ) &&
+            Math.abs(dbMsg.timestamp.getTime() - m.timestamp.getTime()) < 2000
+        );
+        
+        if (isDuplicate) return false;
 
-        // 3. 强制按时间正序排列 (解决乱序)
-        list.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+        return true;
+    });
+    
+    const list = [...dbList, ...pending];
+    list.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-        return list;
-    } catch(e) { return []; }
+    return list;
 };
 
-/**
- * 发送消息
- */
 export const sendM3Message = async (text: string, targetId: string, file?: File) => {
     if (!window.protocol) return;
 
-    // 1. 【秒显】立即构造临时消息入缓存
-    const tempId = 'temp_' + Date.now() + Math.random(); // 唯一临时ID
+    const tempId = 'temp_' + Date.now() + Math.random().toString(36).substr(2, 5); 
+    
+    let type: 'text'|'image'|'file'|'video' = 'text';
+    let displayText = text || '';
+
+    if (file) {
+        if (file.type.startsWith('image')) {
+            type = 'image';
+            displayText = '[图片]';
+        } else if (file.type.startsWith('video') || file.name.endsWith('.mp4') || file.name.endsWith('.mov')) {
+            type = 'video';
+            displayText = `[视频] ${file.name}`;
+        } else {
+            type = 'file';
+            displayText = `[文件] ${file.name}`;
+        }
+    }
+
     const tempMsg: any = {
         id: tempId,
-        text: file ? (file.type.startsWith('image') ? '[图片]' : '[文件]') : text,
+        text: displayText,
         senderId: window.state.myId,
         timestamp: new Date(),
-        type: file ? (file.type.startsWith('image') ? 'image' : 'file') : 'text',
-        _targetId: targetId
+        type: type,
+        _targetId: targetId,
+        originalM3Msg: file ? { meta: { fileName: file.name, fileSize: file.size, fileType: file.type } } : undefined 
     };
+    
+    if (file && (type === 'image' || type === 'video')) {
+        if (!window.virtualFiles) window.virtualFiles = new Map();
+        window.virtualFiles.set(tempId, file); 
+        tempMsg.originalM3Msg = { 
+            kind: 'SMART_FILE_UI',
+            meta: { fileId: tempId, fileName: file.name, fileSize: file.size, fileType: file.type } 
+        };
+    }
+
     tempMsgCache.push(tempMsg);
     
-    // 立即触发 UI 渲染，用户看到消息上屏
+    // Trigger optimistic UI
+    window.dispatchEvent(new Event('m3-msg-incoming'));
     
-    // 2. 准备发送网络请求
+    // setActiveChat handles the backend logic for 'activeChat', but we call it here to be safe during send
+    // though ChatDetail also maintains it.
     const prevChat = window.state.activeChat;
     window.state.activeChat = targetId; 
     
@@ -267,31 +329,105 @@ export const sendM3Message = async (text: string, targetId: string, file?: File)
         }
     } catch (e) {
         console.error("Send failed", e);
-        // 发送失败，可以在这里把缓存里的消息标记为红色感叹号（暂不实现，仅从缓存移除防止假象）
         const idx = tempMsgCache.findIndex(m => m.id === tempId);
         if (idx !== -1) tempMsgCache.splice(idx, 1);
         window.dispatchEvent(new Event('m3-msg-incoming'));
+        window.state.activeChat = prevChat; 
         return;
     }
     
     window.state.activeChat = prevChat; 
 
-    // 3. 【无感替换】拿到真实 pkt 后，原地更新缓存里的那条消息
+    // Update the cache with the REAL packet ID to prevent duplication
     if (pkt) {
         const realMsg = convertM3Msg(pkt, window.state.myId);
         const idx = tempMsgCache.findIndex(m => m.id === tempId);
         if (idx !== -1) {
-            // 保留 _targetId 属性，更新其他字段
+            // Keep it in cache but update ID, so next getMessagesForChat dedupes it against DB
             tempMsgCache[idx] = { ...realMsg, _targetId: targetId };
+            
+            // If it was a file, we need to map the new ID to the blob so playing works before redownload
+            if (file) {
+                // Map real ID to the blob too
+                if (!window.virtualFiles) window.virtualFiles = new Map();
+                // Extract the fileId from the pkt metadata if it exists
+                const newFileId = pkt.meta?.fileId;
+                if (newFileId) window.virtualFiles.set(newFileId, file);
+            }
         } else {
-            // 万一找不到（极少见），就 push 新的
             (realMsg as any)._targetId = targetId;
             tempMsgCache.push(realMsg);
         }
-        
-        // 再次触发 UI 更新，此时 ID 变为真实 ID
         window.dispatchEvent(new Event('m3-msg-incoming'));
     }
+};
+
+// === New Functionality Exports ===
+
+export const markChatRead = (targetId: string) => {
+    if (window.state && window.state.unread) {
+        window.state.unread[targetId] = 0;
+        localStorage.setItem('p1_unread', JSON.stringify(window.state.unread));
+        // Force refresh chat list
+        window.dispatchEvent(new Event('m3-list-update'));
+    }
+};
+
+export const deleteChat = (targetId: string) => {
+    // We don't actually delete from DB in this bridge (too complex), 
+    // but we can remove from contacts/connections lists to hide it
+    if (window.state) {
+        if (window.state.contacts[targetId]) {
+            delete window.state.contacts[targetId];
+            localStorage.setItem('p1_contacts', JSON.stringify(window.state.contacts));
+        }
+        if (window.state.unread[targetId]) {
+            delete window.state.unread[targetId];
+            localStorage.setItem('p1_unread', JSON.stringify(window.state.unread));
+        }
+        // Dispatch update
+        window.dispatchEvent(new Event('m3-list-update'));
+    }
+};
+
+export const updateMyProfile = (data: { name?: string, signature?: string, gender?: string, region?: string }) => {
+    if (!window.state) return;
+    
+    if (data.name) {
+        window.state.myName = data.name;
+        localStorage.setItem('nickname', data.name);
+    }
+    
+    // Store extra fields in localStorage as a JSON object
+    const profile = JSON.parse(localStorage.getItem('p1_profile') || '{}');
+    if (data.signature) profile.signature = data.signature;
+    if (data.gender) profile.gender = data.gender;
+    if (data.region) profile.region = data.region;
+    
+    localStorage.setItem('p1_profile', JSON.stringify(profile));
+    
+    // Notify app
+    window.dispatchEvent(new Event('m3-self-update'));
+};
+
+export const getMyProfile = () => {
+    if (!window.state) return {};
+    const profile = JSON.parse(localStorage.getItem('p1_profile') || '{}');
+    return {
+        id: window.state.myId,
+        name: window.state.myName,
+        ...profile
+    };
+};
+
+export const addContact = (targetId: string) => {
+    if (!window.p2p) return;
+    window.p2p.connectTo(targetId);
+};
+
+export const clearLocalData = () => {
+    localStorage.clear();
+    location.reload();
 };
 
 const formatTime = (ts: number) => {

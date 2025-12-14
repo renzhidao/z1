@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
+import { updateMyProfile } from '../services/m3Bridge';
 
 interface ChangeNameProps {
   onBack: () => void;
@@ -8,6 +9,13 @@ interface ChangeNameProps {
 
 const ChangeName: React.FC<ChangeNameProps> = ({ onBack, initialName }) => {
   const [name, setName] = useState(initialName);
+
+  const handleSave = () => {
+      if (name.trim()) {
+          updateMyProfile({ name: name.trim() });
+          onBack();
+      }
+  };
 
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
@@ -20,7 +28,7 @@ const ChangeName: React.FC<ChangeNameProps> = ({ onBack, initialName }) => {
         </button>
         <span className="text-[17px] font-medium text-[#191919]">更改名字</span>
         <button 
-          onClick={onBack}
+          onClick={handleSave}
           className={`px-3 py-1.5 rounded-[4px] text-[14px] font-medium ${name ? 'bg-[#07C160] text-white active:bg-[#06AD56]' : 'bg-gray-200 text-gray-400'}`}
         >
           保存

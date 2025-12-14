@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
+import { updateMyProfile } from '../services/m3Bridge';
 
 interface SignatureProps {
   onBack: () => void;
@@ -8,6 +9,11 @@ interface SignatureProps {
 const Signature: React.FC<SignatureProps> = ({ onBack }) => {
   const [text, setText] = useState('');
   const maxLength = 30;
+
+  const handleSave = () => {
+      updateMyProfile({ signature: text });
+      onBack();
+  };
 
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
@@ -20,7 +26,7 @@ const Signature: React.FC<SignatureProps> = ({ onBack }) => {
         </button>
         <span className="text-[17px] font-medium text-[#191919]">个性签名</span>
         <button 
-          onClick={onBack}
+          onClick={handleSave}
           className={`px-3 py-1.5 rounded-[4px] text-[14px] font-medium ${text.length > 0 ? 'bg-[#07C160] text-white active:bg-[#06AD56]' : 'bg-gray-200 text-gray-400'}`}
         >
           保存
