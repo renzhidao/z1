@@ -233,36 +233,64 @@ export const getMessagesForChat = async (targetId: string): Promise<Message[]> =
  */
 export const sendM3Message = async (text: string, targetId: string, file?: File) => {
     if (!window.protocol) return;
+
+    // 1. 【秒显】立即构造临时消息入缓存
+    const tempId = 'temp_' + Date.now() + Math.random(); // 唯一临时ID
+    const tempMsg: any = {
+        id: tempId,
+        text: file ? (file.type.startsWith('image') ? '[图片]' : '[文件]') : text,
+        senderId: window.state.myId,
+        timestamp: new Date(),
+        type: file ? (file.type.startsWith('image') ? 'image' : 'file') : 'text',
+        _targetId: targetId
+    };
+    tempMsgCache.push(tempMsg);
     
-    // 临时切换 activeChat 以确保 protocol 发对人
+    // 立即触发 UI 渲染，用户看到消息上屏
+    window.dispatchEvent(new Event('m3-msg-incoming'));
+    
+    // 2. 准备发送网络请求
     const prevChat = window.state.activeChat;
     window.state.activeChat = targetId; 
     
     let pkt = null;
-
-    if (file) {
-        const kind = file.type.startsWith('image') ? 'image' : 'file';
-        // 这里的 await 现在能拿到 protocol.js 返回的 pkt 了
-        pkt = await window.protocol.sendMsg(null, kind, {
-            fileObj: file,
-            name: file.name,
-            size: file.size,
-            type: file.type
-        });
-    } else {
-        pkt = await window.protocol.sendMsg(text);
+    try {
+        if (file) {
+            const kind = file.type.startsWith('image') ? 'image' : 'file';
+            pkt = await window.protocol.sendMsg(null, kind, {
+                fileObj: file,
+                name: file.name,
+                size: file.size,
+                type: file.type
+            });
+        } else {
+            pkt = await window.protocol.sendMsg(text);
+        }
+    } catch (e) {
+        console.error("Send failed", e);
+        // 发送失败，可以在这里把缓存里的消息标记为红色感叹号（暂不实现，仅从缓存移除防止假象）
+        const idx = tempMsgCache.findIndex(m => m.id === tempId);
+        if (idx !== -1) tempMsgCache.splice(idx, 1);
+        window.dispatchEvent(new Event('m3-msg-incoming'));
+        return;
     }
     
     window.state.activeChat = prevChat; 
 
-    // 如果拿到真实 pkt，转换并存入缓存
+    // 3. 【无感替换】拿到真实 pkt 后，原地更新缓存里的那条消息
     if (pkt) {
-        const msg = convertM3Msg(pkt, window.state.myId);
-        // 手动补全 _targetId 供 getMessagesForChat 过滤
-        (msg as any)._targetId = targetId;
-        tempMsgCache.push(msg);
+        const realMsg = convertM3Msg(pkt, window.state.myId);
+        const idx = tempMsgCache.findIndex(m => m.id === tempId);
+        if (idx !== -1) {
+            // 保留 _targetId 属性，更新其他字段
+            tempMsgCache[idx] = { ...realMsg, _targetId: targetId };
+        } else {
+            // 万一找不到（极少见），就 push 新的
+            (realMsg as any)._targetId = targetId;
+            tempMsgCache.push(realMsg);
+        }
         
-        // 触发 UI 更新
+        // 再次触发 UI 更新，此时 ID 变为真实 ID
         window.dispatchEvent(new Event('m3-msg-incoming'));
     }
 };
