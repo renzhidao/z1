@@ -18,9 +18,17 @@ export function init() {
     },
 
     async saveMsg(msg) {
-      if (!this._db) return;
-      const tx = this._db.transaction(['msgs'], 'readwrite');
-      tx.objectStore('msgs').put(msg);
+      if (!this._db) return false;
+      return new Promise(resolve => {
+        try {
+          const tx = this._db.transaction(['msgs'], 'readwrite');
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+          tx.objectStore('msgs').put(msg);
+        } catch (e) {
+          resolve(false);
+        }
+      });
     },
 
     async getRecent(limit, target='all', beforeTs) {
