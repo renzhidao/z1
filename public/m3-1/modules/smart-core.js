@@ -112,7 +112,8 @@ export function init() {
 
   if (window.protocol) {
       const origSend = window.protocol.sendMsg;
-      window.protocol.sendMsg = function(txt, kind, meta) {
+      // === PATCH: 更新签名以接收 explicitTarget ===
+      window.protocol.sendMsg = function(txt, kind, meta, explicitTarget) {
           if ((kind === CHAT.KIND_FILE || kind === CHAT.KIND_IMAGE) && meta && meta.fileObj) {
               const file = meta.fileObj;
               const fileId = 'f_' + Date.now() + Math.random().toString(36).substr(2,5);
@@ -120,20 +121,34 @@ export function init() {
               log(`✅ 文件注册: ${file.name} (${fmtMB(file.size)}) type=${file.type}`);
 
               const metaData = { fileId, fileName: file.name, fileSize: file.size, fileType: file.type };
+              
+              // === PATCH: 使用 explicitTarget ===
+              let targetId = explicitTarget || window.state.activeChat;
+              if (!targetId && targetId !== 0) targetId = CHAT.PUBLIC_ID;
+
               const msg = {
-                  t: 'SMART_META', id: 'm_' + Date.now(), ts: Date.now(), senderId: window.state.myId,
-                  n: window.state.myName, kind: 'SMART_FILE_UI', txt: `[文件] ${file.name}`, meta: metaData,
-                  target: (window.state.activeChat && window.state.activeChat !== CHAT.PUBLIC_ID) ? window.state.activeChat : CHAT.PUBLIC_ID
+                  t: 'SMART_META', 
+                  id: window.util.uuid(), // Use util.uuid like protocol does
+                  ts: window.util.now(), 
+                  senderId: window.state.myId,
+                  n: window.state.myName, 
+                  kind: 'SMART_FILE_UI', 
+                  txt: `[文件] ${file.name}`, 
+                  meta: metaData,
+                  target: targetId
               };
 
-              // 本地立即显示
+              // 本地立即显示 (会存入DB)
               window.protocol.processIncoming(msg);
 
               // 可靠发送（单聊 + 公共频道）
               sendSmartMetaReliable(msg);
-              return;
+              
+              // === PATCH: 返回 msg 对象，以便 m3Bridge 可以更新缓存 ID ===
+              return Promise.resolve(msg);
           }
-          origSend.apply(this, arguments);
+          // Pass all arguments including explicitTarget
+          return origSend.apply(this, arguments);
       };
 
       const origProc = window.protocol.processIncoming;
@@ -148,16 +163,27 @@ export function init() {
                   window.smartMetaCache.set(meta.fileId, meta);
                   if(!window.remoteFiles.has(meta.fileId)) window.remoteFiles.set(meta.fileId, new Set());
                   window.remoteFiles.get(meta.fileId).add(pkt.senderId);
-                  if (window.ui) window.ui.appendMsg(pkt);
+                  
+                  // === PATCH: 必须保存到 DB，否则刷新丢失 / getMessagesForChat 查不到 ===
+                  if (window.db && window.db.saveMsg) {
+                      window.db.saveMsg(pkt); 
+                  }
+                  
+                  // 触发 React 更新
+                  // if (window.ui) window.ui.appendMsg(pkt); 
+                  // 直接 dispatch，ui.appendMsg 也是 dispatch
+                  window.dispatchEvent(new Event('m3-msg-incoming'));
               }
               // 回 ACK
               if (fromPeerId) {
                   const c = window.state.conns[fromPeerId];
                   if (c && c.open) c.send({ t: 'SMART_META_ACK', refId: pkt.id, from: window.state.myId });
               } else {
-                  // 尝试直接回给 sender
-                  const c = window.state.conns[pkt.senderId];
-                  if (c && c.open) c.send({ t: 'SMART_META_ACK', refId: pkt.id, from: window.state.myId });
+                  // 尝试直接回给 sender (可能是自己发给自己的，忽略)
+                  if (pkt.senderId !== window.state.myId) {
+                      const c = window.state.conns[pkt.senderId];
+                      if (c && c.open) c.send({ t: 'SMART_META_ACK', refId: pkt.id, from: window.state.myId });
+                  }
               }
               return;
           }
