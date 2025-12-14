@@ -1,0 +1,8 @@
+{
+  "name": "P1 WeChat",
+  "description": "A P2P distributed chat application with WeChat UI.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
