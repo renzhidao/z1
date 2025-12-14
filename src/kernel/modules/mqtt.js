@@ -1,3 +1,4 @@
+
 import { MSG_TYPE, NET_PARAMS, UI_CONFIG } from './constants.js';
 
 export function init() {

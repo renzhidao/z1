@@ -1,7 +1,7 @@
+
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, QrCode } from 'lucide-react';
 import { User } from '../types';
-import { getMyProfile } from '../services/m3Bridge';
 
 interface PersonalInfoProps {
   onBack: () => void;
@@ -25,9 +25,6 @@ const PersonalInfo: React.FC<PersonalInfoProps> = ({
   onSignatureClick
 }) => {
   const [showAvatarSheet, setShowAvatarSheet] = useState(false);
-
-  // Retrieve extended profile info
-  const extendedProfile = getMyProfile();
 
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
@@ -62,10 +59,8 @@ const PersonalInfo: React.FC<PersonalInfoProps> = ({
            </div>
 
            <InfoItem label="名字" value={currentUser.name} onClick={onNameClick} />
-           <InfoItem label="性别" value={(extendedProfile as any).gender || '未设置'} onClick={onGenderClick} />
-           <InfoItem label="地区" value={(extendedProfile as any).region || '未设置'} onClick={onRegionClick} />
-           <InfoItem label="手机号" value="-" />
-           <InfoItem label="微信号" value={currentUser.wechatId} />
+           <InfoItem label="性别" value="未知" onClick={onGenderClick} />
+           <InfoItem label="地区" value={currentUser.region || "P2P 网络"} onClick={onRegionClick} />
            
            <div 
              onClick={onQRCodeClick}
@@ -78,20 +73,14 @@ const PersonalInfo: React.FC<PersonalInfoProps> = ({
              </div>
            </div>
 
-           <InfoItem label="拍一拍" onClick={onTickleClick} />
-           <InfoItem label="签名" value={(extendedProfile as any).signature || '未填写'} onClick={onSignatureClick} />
-        </div>
-
-        {/* Group 2 */}
-        <div className="bg-white mb-2 border-y border-gray-200/50">
+           <InfoItem label="更多信息" />
            <InfoItem label="来电铃声" />
-           <InfoItem label="我的地址" />
-           <InfoItem label="我的发票抬头" />
-        </div>
-
-         {/* Group 3 */}
-         <div className="bg-white mb-8 border-y border-gray-200/50">
            <InfoItem label="微信豆" />
+           <InfoItem label="我的地址" />
+        </div>
+        
+        <div className="px-4 py-2 text-center text-gray-400 text-[12px]">
+            ID: {currentUser.wechatId}
         </div>
       </div>
 
@@ -113,11 +102,7 @@ const PersonalInfo: React.FC<PersonalInfoProps> = ({
                <button className="w-full py-3.5 text-[17px] text-[#191919] font-normal active:bg-[#F2F2F2]">
                  拍照
                </button>
-               <button className="w-full py-3.5 text-[17px] text-[#191919] font-normal active:bg-[#F2F2F2]">
-                 保存图片
-               </button>
              </div>
-             
              <div className="mt-2 bg-white">
                <button 
                  className="w-full py-3.5 text-[17px] text-[#191919] font-normal active:bg-[#F2F2F2]"

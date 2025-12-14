@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { MessageCircle, Users, Compass, User } from 'lucide-react';
 import { Tab } from '../types';
@@ -5,9 +6,10 @@ import { Tab } from '../types';
 interface BottomNavProps {
   currentTab: Tab;
   onTabChange: (tab: Tab) => void;
+  unreadCount?: number;
 }
 
-const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange }) => {
+const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange, unreadCount = 0 }) => {
   const navItems = [
     { id: Tab.CHATS, label: '微信', icon: MessageCircle },
     { id: Tab.CONTACTS, label: '通讯录', icon: Users },
@@ -35,11 +37,17 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange }) => {
                   className={isActive ? 'text-[#07C160] fill-[#07C160]' : 'text-[#191919]'} 
                   fill={isActive ? 'currentColor' : 'none'}
                 />
-                {/* Example Badge for Chats tab */}
-                {item.id === Tab.CHATS && (
+                
+                {/* Dynamic Badge for Chats tab */}
+                {item.id === Tab.CHATS && unreadCount > 0 && (
                   <span className="absolute -top-1 -right-2 bg-[#FA5151] text-white text-[10px] font-medium px-[5px] min-w-[16px] h-[16px] flex items-center justify-center rounded-full border border-[#F7F7F7]">
-                    1
+                    {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
+                )}
+                
+                {/* Discovery Dot (Mock) */}
+                {item.id === Tab.DISCOVER && (
+                   <span className="absolute top-0 -right-1 bg-[#FA5151] w-2 h-2 rounded-full border border-[#F7F7F7]"></span>
                 )}
               </div>
               <span className={`text-[10px] tracking-wide ${isActive ? 'text-[#07C160] font-medium' : 'text-[#191919] font-normal'}`}>

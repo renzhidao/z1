@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import { ChevronLeft, Search, ChevronRight, QrCode, ScanLine, Smartphone, Radar, Users, UserPlus, Building, ShoppingBag, ArrowRight } from 'lucide-react';
-import { addContact } from '../services/m3Bridge';
+import React from 'react';
+import { ChevronLeft, Search, ChevronRight, QrCode, ScanLine, Smartphone, Radar, Users, UserPlus, Building, ShoppingBag } from 'lucide-react';
 
 interface AddFriendProps {
   onBack: () => void;
@@ -8,23 +7,6 @@ interface AddFriendProps {
 }
 
 const AddFriend: React.FC<AddFriendProps> = ({ onBack, myWechatId }) => {
-  const [searchValue, setSearchValue] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-
-  const handleSearch = () => {
-      if (!searchValue.trim()) return;
-      setIsSearching(true);
-      // Execute the bridge function to connect to peer
-      addContact(searchValue.trim());
-      
-      // Simulate UI feedback
-      setTimeout(() => {
-          setIsSearching(false);
-          alert(`已发送连接请求给: ${searchValue}`);
-          setSearchValue('');
-      }, 800);
-  };
-
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
       {/* Header */}
@@ -42,20 +24,9 @@ const AddFriend: React.FC<AddFriendProps> = ({ onBack, myWechatId }) => {
       <div className="flex-1 overflow-y-auto no-scrollbar">
         {/* Search Bar Area */}
         <div className="px-2 py-3 bg-[#EDEDED]">
-            <div className="bg-white rounded-[6px] h-[40px] flex items-center px-3 text-gray-400 active:bg-gray-50 transition-colors">
+            <div className="bg-white rounded-[6px] h-[40px] flex items-center justify-center text-gray-400 active:bg-gray-50 transition-colors cursor-text">
                 <Search size={18} className="mr-1.5 opacity-40" />
-                <input 
-                    className="flex-1 h-full outline-none text-[#191919] placeholder-gray-400/70"
-                    placeholder="账号/手机号/节点ID"
-                    value={searchValue}
-                    onChange={(e) => setSearchValue(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
-                {searchValue && (
-                    <button onClick={handleSearch} className="ml-2 text-[#07C160]">
-                        <ArrowRight size={20} />
-                    </button>
-                )}
+                <span className="text-[16px] text-gray-400/70 font-normal">账号/手机号</span>
             </div>
         </div>
 

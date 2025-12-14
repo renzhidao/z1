@@ -1,3 +1,4 @@
+
 export function init() {
   console.log('📦 加载模块: Utils (Log-Enhanced)');
   
@@ -37,21 +38,8 @@ export function init() {
     add(text) {
       if (typeof text === 'object') text = JSON.stringify(text);
       
-      const el = document.getElementById('logContent');
-      
       if (text === this._lastMsg) {
         this._repeatCount++;
-        if (el && el.firstChild) {
-          let countSpan = el.firstChild.querySelector('.log-count');
-          if (!countSpan) {
-             countSpan = document.createElement('span');
-             countSpan.className = 'log-count';
-             countSpan.style.color = '#ff0';
-             countSpan.style.marginLeft = '8px';
-             el.firstChild.appendChild(countSpan);
-          }
-          countSpan.innerText = `(x${this._repeatCount + 1})`;
-        }
         return;
       }
       
@@ -66,13 +54,6 @@ export function init() {
       this.history.push(msg);
       if (this.history.length > 200) this.history.shift();
       try { localStorage.setItem('p1_blackbox', JSON.stringify(this.history)); } catch(e){}
-      
-      if (el) {
-         const div = document.createElement('div');
-         div.innerText = msg;
-         div.style.borderBottom = '1px solid #333';
-         el.prepend(div);
-      }
     },
     
     clear() { this.history = []; localStorage.removeItem('p1_blackbox'); }

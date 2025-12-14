@@ -1,11 +1,11 @@
+
 import { MSG_TYPE, NET_PARAMS, CHAT } from './constants.js';
 
 export function init() {
   console.log('📦 加载模块: Protocol (Direct Mode)');
   
   window.protocol = {
-    // Modified: Added explicitTarget parameter
-    async sendMsg(txt, kind = CHAT.KIND_TEXT, fileInfo = null, explicitTarget = null) {
+    async sendMsg(txt, kind = CHAT.KIND_TEXT, fileInfo = null) {
       const now = window.util.now();
       
       // 这里的 1秒5条 是为了防UI刷屏卡死，不是网络限速，保留
@@ -13,19 +13,11 @@ export function init() {
         window.state.msgCount++;
         if (window.state.msgCount > 5) {
           window.util.log('⚠️ 发送太快，请稍候');
-          return null; // Return null to indicate failure
+          return;
         }
       } else {
         window.state.msgCount = 0;
         window.state.lastMsgTime = now;
-      }
-
-      // Use explicit target if provided, otherwise fallback to global state
-      const finalTarget = explicitTarget || window.state.activeChat;
-
-      if (!finalTarget) {
-          console.error("No target specified for message");
-          return null;
       }
 
       const pkt = {
@@ -33,7 +25,7 @@ export function init() {
         id: window.util.uuid(),
         n: window.state.myName,
         senderId: window.state.myId,
-        target: finalTarget,
+        target: window.state.activeChat,
         txt: txt, 
         kind: kind,
         ts: now,
@@ -46,10 +38,9 @@ export function init() {
         pkt.fileType = fileInfo.type;
       }
 
-      await this.processIncoming(pkt);
+      this.processIncoming(pkt);
       window.db.addPending(pkt);
       this.retryPending();
-      return pkt;
     },
 
     async processIncoming(pkt, fromPeerId) {
@@ -81,19 +72,13 @@ export function init() {
       if (isPublic || isToMe || isFromMe) {
         const chatKey = isPublic ? CHAT.PUBLIC_ID : (isFromMe ? pkt.target : pkt.senderId);
         
-        // React UI Hook: Only update unread if we aren't looking at this chat
         if (window.state.activeChat !== chatKey) {
            window.state.unread[chatKey] = (window.state.unread[chatKey] || 0) + 1;
-           // Notify React list update
-           try { window.dispatchEvent(new Event('m3-list-update')); } catch(e) {}
+           if (window.ui) window.ui.renderList();
         } else {
-           // If we are looking at it, append to UI (React handles this via event)
+           if (window.ui) window.ui.appendMsg(pkt);
         }
-        
-        if (window.db && window.db.saveMsg) await window.db.saveMsg(pkt);
-        
-        // CRITICAL: Always dispatch incoming event for React to catch
-        try { window.dispatchEvent(new Event('m3-msg-incoming')); } catch(e) {}
+        window.db.saveMsg(pkt);
       }
 
       if (isPublic) {

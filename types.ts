@@ -12,8 +12,7 @@ export interface Message {
   senderId: string; // 'me' or user.id
   timestamp: Date;
   isSystem?: boolean;
-  type?: 'text' | 'image' | 'voice' | 'video' | 'redPacket';
-  originalM3Msg?: any;
+  type?: 'text' | 'image' | 'voice' | 'redPacket';
 }
 
 export interface Chat {

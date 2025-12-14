@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>微信</title>
+    <title>微信 (P1 Core)</title>
+    
+    <!-- M1 Core Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.0/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mp4box.js/0.5.2/mp4box.all.min.js"></script>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       /* Custom scrollbar hiding for cleaner UI */
@@ -59,48 +65,19 @@
       .animate-voice-2 { animation: voice-2 1.5s infinite; }
       .animate-voice-3 { animation: voice-3 1.5s infinite; }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
-    "vite": "https://aistudiocdn.com/vite@^7.2.6",
-    "path": "https://aistudiocdn.com/path@^0.12.7"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-<!-- Pre-load m3-1 backend libraries -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.0/dist/peerjs.min.js"></script>
-
-
-    <!-- 动态加载 Public 资源 (避开 Vite 构建解析错误) -->
-    <script>
-      (function() {
-        // 获取当前基础路径 (兼容 GitHub Pages /repo/ 路径)
-        var base = (document.baseURI || window.location.href).replace(/\/index\.html.*/, '/');
-        if (!base.endsWith('/')) base += '/';
-        
-        function load(src, isModule) {
-            var s = document.createElement('script');
-            s.src = base + src;
-            if (isModule) s.type = 'module';
-            document.head.appendChild(s);
-        }
-        
-        load('m3-1/modules/mp4box.all.min.js', false);
-        load('m3-1/loader.js', true);
-      })();
-    </script>
-
 </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
+    <script type="module" src="./index.tsx"></script>
+    <script>
+      // Service Worker Registration for P2P Streaming
+      if('serviceWorker' in navigator) {
+        // Fix: Use relative path './sw.js' instead of absolute '/sw.js' for GH Pages support
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+          console.log('SW Registered for P1 Core');
+          reg.update();
+        });
+      }
+    </script>
 </body>
 </html>
