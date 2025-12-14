@@ -202,6 +202,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         }
     }
 
+    if (!window.smartCore && (msg as any).originalM3Msg) {
+        onShowToast("核心模块未就绪，无法播放");
+        return;
+    }
+
     // Fallback for simulation
     if (playingMessageId === id) {
         setPlayingMessageId(null);
@@ -357,7 +362,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                        // 尝试从 m3 meta 获取图片 URL
                        <div className="bg-gray-100 rounded-[6px] p-1 border border-gray-200">
                            <img 
-                                src={(msg as any).originalM3Msg ? window.smartCore.play((msg as any).originalM3Msg.meta.fileId) : "https://picsum.photos/seed/chatimg/400/300"} 
+                                src={(msg as any).originalM3Msg && window.smartCore ? window.smartCore.play((msg as any).originalM3Msg.meta.fileId) : "https://picsum.photos/seed/chatimg/400/300"} 
                                 className="rounded-[4px] max-w-[200px]" 
                                 alt="Chat Image" 
                                 onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Image+Load+Error' }}
