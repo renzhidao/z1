@@ -26,7 +26,7 @@ import { Tab, Chat, User, ToastState } from './types';
 import { MOCK_CHATS } from './constants';
 // Use explicit relative import
 import { initBackend, getChatsFromBackend } from './services/m3Bridge';
-import { User as UserIcon, Box, ShoppingBag, Gamepad, Zap, Smile, CreditCard, Image, Camera, ChevronRight, Search as SearchIcon, Users, Tag, FileText, MessageSquare, Settings as SettingsIcon, Smartphone, ScanLine, Wallet, Folder, FileQuestion, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { User as UserIcon, Box, ShoppingBag, Gamepad, Zap, Smile, CreditCard, Image, Camera, ChevronRight, Search as SearchIcon, Users, Tag, FileText, MessageSquare, Settings as SettingsIcon, Smartphone, ScanLine, Wallet, Folder, FileQuestion, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<Tab>(Tab.CHATS);
@@ -36,6 +36,7 @@ export function App() {
   const [isBackendReady, setIsBackendReady] = useState(false);
   const [bootStatus, setBootStatus] = useState("正在启动...");
   const [fsCheckList, setFsCheckList] = useState<{path: string, status: string, ok: boolean}[]>([]);
+  const [showForceEnter, setShowForceEnter] = useState(false);
 
   // Initialize M3 Backend
   useEffect(() => {
@@ -43,9 +44,7 @@ export function App() {
     const checkFiles = async () => {
         const paths = [
             './m3-1/loader.js',
-            './m3-1/config.json',
-            './m3-1/modules/constants.js',
-            './index.html'
+            './m3-1/config.json'
         ];
         
         const results = [];
@@ -54,13 +53,13 @@ export function App() {
                 const res = await fetch(p, { method: 'HEAD' });
                 results.push({
                     path: p, 
-                    status: `${res.status} ${res.statusText}`,
+                    status: res.ok ? 'OK' : `${res.status}`,
                     ok: res.ok
                 });
             } catch (e) {
                 results.push({
                     path: p,
-                    status: 'Network/CORS Error',
+                    status: 'Error',
                     ok: false
                 });
             }
@@ -78,27 +77,30 @@ export function App() {
     };
     startUp();
 
+    // Show force enter button quickly (3s) so user isn't stuck
+    const forceTimer = setTimeout(() => setShowForceEnter(true), 3000);
+
     // Listen for M3 Events
     const handleListUpdate = () => refreshChats();
-    const handleMsgIncoming = () => refreshChats(); // 粗略刷新，理想情况只更新特定 Chat
+    const handleMsgIncoming = () => refreshChats(); 
     
     window.addEventListener('m3-list-update', handleListUpdate);
     window.addEventListener('m3-msg-incoming', handleMsgIncoming);
     
-    // Timer to refresh online status
     const timer = setInterval(refreshChats, 5000);
 
     return () => {
         window.removeEventListener('m3-list-update', handleListUpdate);
         window.removeEventListener('m3-msg-incoming', handleMsgIncoming);
         clearInterval(timer);
+        clearTimeout(forceTimer);
     };
   }, []);
 
   const refreshChats = async () => {
+      // 宽松检查，只要有 state 就可以尝试获取
       if (!window.state) return;
       const chats = await getChatsFromBackend();
-      // Sort: Pinned first, then by time
       const sorted = chats.sort((a, b) => {
           if (!!a.isPinned === !!b.isPinned) return 0;
           return a.isPinned ? -1 : 1;
@@ -303,7 +305,7 @@ export function App() {
                  </div>
                ))}
                <div className="py-8 text-center text-gray-400 text-[15px]">
-                 在线节点: {window.state ? Object.keys(window.state.conns).length : 0}
+                 在线节点: {window.state ? Object.keys(window.state.conns || {}).length : 0}
                </div>
             </div>
           </div>
@@ -427,6 +429,15 @@ export function App() {
               <p className="text-gray-500 text-sm font-medium">正在启动 P1 核心...</p>
               <p className="text-gray-400 text-xs mt-2 font-mono mb-6 text-center">{bootStatus}</p>
               
+              {showForceEnter && (
+                  <button 
+                    onClick={() => { setIsBackendReady(true); refreshChats(); }}
+                    className="mb-6 px-4 py-2 bg-[#07C160] text-white rounded text-sm font-medium flex items-center gap-1 active:opacity-80 animate-in fade-in duration-300"
+                  >
+                    强制进入 <ArrowRight size={14} />
+                  </button>
+              )}
+
               {/* File System Check List */}
               <div className="w-full max-w-sm bg-white rounded-lg p-3 shadow-sm border border-gray-200 text-left">
                   <div className="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">
@@ -445,7 +456,7 @@ export function App() {
                       {fsCheckList.length === 0 && <span className="text-xs text-gray-400">正在扫描...</span>}
                   </div>
                   <div className="mt-2 text-[10px] text-gray-400 border-t pt-2">
-                      如果文件全红(404)，请检查 `m3-1` 文件夹是否在 public 目录或构建产物中。
+                      提示：请确保 `m3-1` 文件夹已移动到 `public` 目录下，以便正确加载。
                   </div>
               </div>
           </div>
