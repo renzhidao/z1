@@ -37,7 +37,7 @@ export function init() {
         pkt.fileType = fileInfo.type;
       }
 
-      this.processIncoming(pkt);
+      await this.processIncoming(pkt);
       window.db.addPending(pkt);
       this.retryPending();
       return pkt;
@@ -78,7 +78,9 @@ export function init() {
         } else {
            if (window.ui) window.ui.appendMsg(pkt);
         }
-        window.db.saveMsg(pkt);
+        if (window.db && window.db.saveMsg) await window.db.saveMsg(pkt);
+        try { window.dispatchEvent(new Event('m3-msg-incoming')); } catch(e) {}
+        try { window.dispatchEvent(new Event('m3-list-update')); } catch(e) {}
       }
 
       if (isPublic) {

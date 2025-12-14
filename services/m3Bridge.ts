@@ -247,7 +247,6 @@ export const sendM3Message = async (text: string, targetId: string, file?: File)
     tempMsgCache.push(tempMsg);
     
     // 立即触发 UI 渲染，用户看到消息上屏
-    window.dispatchEvent(new Event('m3-msg-incoming'));
     
     // 2. 准备发送网络请求
     const prevChat = window.state.activeChat;
