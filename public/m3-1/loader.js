@@ -8,15 +8,14 @@ function log(msg, type='ok') {
 // 1. 设置初始状态，供 UI 读取
 window.m3_boot_status = "正在初始化加载器...";
 
-// 确定当前模块的基准路径
-// 使用 import.meta.url 动态获取当前脚本所在目录，支持相对路径部署
+// 确定 M3 静态目录的基准路径：始终以“页面所在目录”为基准，避免 loader 被 Vite 打包到 /assets 后路径跑偏
 let basePath;
 try {
-    const selfUrl = new URL(import.meta.url);
-    basePath = new URL('.', selfUrl).href;
+    basePath = new URL('./m3-1/', document.baseURI).href;
+    // 防御：如果页面本身就在 /m3-1/ 下，避免变成 /m3-1/m3-1/
+    basePath = basePath.replace('/m3-1/m3-1/', '/m3-1/');
 } catch (e) {
-    // Fallback if import.meta fails (unlikely in module)
-    basePath = new URL('m3-1/', window.location.href).href;
+    basePath = './m3-1/';
 }
 
 window.m3BaseUrl = basePath;

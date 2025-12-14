@@ -42,9 +42,10 @@ export function App() {
   useEffect(() => {
     // 1. File System Diagnostic Check
     const checkFiles = async () => {
+        const base = import.meta.env.BASE_URL || './';
         const paths = [
-            './m3-1/loader.js',
-            './m3-1/config.json'
+            `${base}m3-1/loader.js`,
+            `${base}m3-1/config.json`
         ];
         
         const results = [];

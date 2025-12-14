@@ -43,7 +43,8 @@ export const initBackend = async (onStatusCallback?: (status: string) => void) =
           
           const script = document.createElement('script');
           script.type = 'module';
-          script.src = './m3-1/loader.js?t=' + Date.now(); // 相对路径
+          const base = import.meta.env.BASE_URL || './';
+           script.src = `${base}m3-1/loader.js?t=${Date.now()}`; // 以 BASE_URL 为锚点，兼容 GitHub Pages 子路径
           
           script.onload = () => console.log('✅ Manual injection loaded');
           script.onerror = (e) => {
