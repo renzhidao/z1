@@ -202,11 +202,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         }
     }
 
-    if (!window.smartCore && (msg as any).originalM3Msg) {
-        onShowToast("核心模块未就绪，无法播放");
-        return;
-    }
-
     // Fallback for simulation
     if (playingMessageId === id) {
         setPlayingMessageId(null);

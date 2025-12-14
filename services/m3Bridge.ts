@@ -1,5 +1,18 @@
 import { Chat, Message, User } from '../types';
 
+// === 补丁: 发送消息缓冲池 (解决DB落盘延迟导致消息“不上屏”或被覆盖) ===
+const tempMsgCache: Message[] = [];
+// 清理超过 10 秒的缓存消息，避免堆积
+setInterval(() => {
+    const now = Date.now();
+    for(let i = tempMsgCache.length - 1; i >= 0; i--) {
+        if (now - tempMsgCache[i].timestamp.getTime() > 10000) {
+            tempMsgCache.splice(i, 1);
+        }
+    }
+}, 5000);
+
+
 // 定义 window 上的 m3 全局对象类型
 declare global {
   interface Window {
@@ -197,7 +210,21 @@ export const getMessagesForChat = async (targetId: string): Promise<Message[]> =
     if (!window.db) return [];
     try {
         const msgs = await window.db.getRecent(50, targetId);
-        return msgs.reverse().map((m: any) => convertM3Msg(m, window.state.myId));
+        // 1. 转换 DB 消息 (注意：db.getRecent 通常返回倒序或正序，我们统一转换后重排)
+        let list = msgs.map((m: any) => convertM3Msg(m, window.state.myId));
+        
+        // 2. 合并缓冲池 (匹配 targetId 且去重)
+        const dbMsgIds = new Set(list.map(m => m.id));
+        const pending = tempMsgCache.filter((m: any) => {
+            return m._targetId === targetId && !dbMsgIds.has(m.id);
+        });
+        
+        list = [...list, ...pending];
+
+        // 3. 强制按时间正序排列 (解决乱序)
+        list.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+        return list;
     } catch(e) { return []; }
 };
 
@@ -207,21 +234,36 @@ export const getMessagesForChat = async (targetId: string): Promise<Message[]> =
 export const sendM3Message = async (text: string, targetId: string, file?: File) => {
     if (!window.protocol) return;
     
+    // 临时切换 activeChat 以确保 protocol 发对人
+    const prevChat = window.state.activeChat;
+    window.state.activeChat = targetId; 
+    
+    let pkt = null;
+
     if (file) {
         const kind = file.type.startsWith('image') ? 'image' : 'file';
-        window.protocol.sendMsg(null, kind, {
+        // 这里的 await 现在能拿到 protocol.js 返回的 pkt 了
+        pkt = await window.protocol.sendMsg(null, kind, {
             fileObj: file,
             name: file.name,
             size: file.size,
             type: file.type
         });
     } else {
-        const prevChat = window.state.activeChat;
-        window.state.activeChat = targetId; 
+        pkt = await window.protocol.sendMsg(text);
+    }
+    
+    window.state.activeChat = prevChat; 
+
+    // 如果拿到真实 pkt，转换并存入缓存
+    if (pkt) {
+        const msg = convertM3Msg(pkt, window.state.myId);
+        // 手动补全 _targetId 供 getMessagesForChat 过滤
+        (msg as any)._targetId = targetId;
+        tempMsgCache.push(msg);
         
-        await window.protocol.sendMsg(text);
-        
-        window.state.activeChat = prevChat; 
+        // 触发 UI 更新
+        window.dispatchEvent(new Event('m3-msg-incoming'));
     }
 };
 

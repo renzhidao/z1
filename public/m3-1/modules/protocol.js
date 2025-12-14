@@ -40,6 +40,7 @@ export function init() {
       this.processIncoming(pkt);
       window.db.addPending(pkt);
       this.retryPending();
+      return pkt;
     },
 
     async processIncoming(pkt, fromPeerId) {
