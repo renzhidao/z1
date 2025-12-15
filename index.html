@@ -69,7 +69,10 @@
       window.uiEvents = { init: () => {} };
 
       // 2. Load Core Modules Manually
-      const CORE_BASE = './core/';
+      // FIX: Use absolute path derived from window.location to ensure correct resolution
+      // even if Vite bundles this script into 'assets/' subfolder.
+      // e.g. https://site.com/z1/index.html -> https://site.com/z1/core/
+      const CORE_BASE = new URL('./core/', window.location.href).href;
       
       const moduleNames = [
         'modules/constants.js',
@@ -85,12 +88,14 @@
 
       async function loadCore() {
         try {
-          console.log('🚀 Booting Core...');
+          console.log('🚀 Booting Core from:', CORE_BASE);
           
           // 0. Register Service Worker (Critical for Smart Core)
           if ('serviceWorker' in navigator) {
              try {
-               await navigator.serviceWorker.register('./core/sw.js', { scope: './' });
+               // SW path must also be absolute or strictly relative to root
+               const swPath = new URL('sw.js', CORE_BASE).href;
+               await navigator.serviceWorker.register(swPath, { scope: './' });
                console.log('✅ SW Registered');
              } catch(err) {
                console.warn('⚠️ SW Registration Failed (Non-fatal):', err);
@@ -99,7 +104,7 @@
 
           // 1. Load Config
           const cfg = await fetch(CORE_BASE + 'config.json').then(r => {
-             if(!r.ok) throw new Error(`Config Load 404: ${r.statusText}`);
+             if(!r.ok) throw new Error(`Config Load 404: ${r.statusText} (${CORE_BASE}config.json)`);
              return r.json();
           });
           window.config = cfg;
