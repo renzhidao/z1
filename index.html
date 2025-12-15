@@ -6,77 +6,105 @@
     <title>微信</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      /* Custom scrollbar hiding for cleaner UI */
-      .no-scrollbar::-webkit-scrollbar {
-        display: none;
-      }
-      .no-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-      /* iOS-like safe area adjustments */
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       body {
         background-color: #f5f5f5;
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
       }
-      .safe-bottom {
-        padding-bottom: env(safe-area-inset-bottom);
-      }
-      .pt-safe-top {
-        padding-top: env(safe-area-inset-top);
-      }
-      
-      /* Animation Keyframes */
-      @keyframes slideInRight {
-        from { transform: translateX(100%); }
-        to { transform: translateX(0); }
-      }
-      @keyframes slideInBottom {
-        from { transform: translateY(100%); }
-        to { transform: translateY(0); }
-      }
-      .slide-in-from-right {
-        animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-      }
-      .slide-in-from-bottom {
-        animation: slideInBottom 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-      }
-
-      /* Voice Message Wave Animations */
-      @keyframes voice-1 { 
-        0%, 100% { opacity: 1; } 
-      }
-      @keyframes voice-2 { 
-        0%, 30% { opacity: 0; } 
-        31%, 100% { opacity: 1; } 
-      }
-      @keyframes voice-3 { 
-        0%, 60% { opacity: 0; } 
-        61%, 100% { opacity: 1; } 
-      }
+      .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+      .pt-safe-top { padding-top: env(safe-area-inset-top); }
+      @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      .slide-in-from-right { animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      @keyframes voice-1 { 0%, 100% { opacity: 1; } }
+      @keyframes voice-2 { 0%, 30% { opacity: 0; } 31%, 100% { opacity: 1; } }
+      @keyframes voice-3 { 0%, 60% { opacity: 0; } 61%, 100% { opacity: 1; } }
       .animate-voice-1 { animation: voice-1 1.5s infinite; }
       .animate-voice-2 { animation: voice-2 1.5s infinite; }
       .animate-voice-3 { animation: voice-3 1.5s infinite; }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
-    "vite": "https://aistudiocdn.com/vite@^7.2.6",
-    "path": "https://aistudiocdn.com/path@^0.12.7"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
+    <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+        "react/": "https://aistudiocdn.com/react@^19.2.0/",
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+        "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+        "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+        "vite": "https://aistudiocdn.com/vite@^7.2.6",
+        "path": "https://aistudiocdn.com/path@^0.12.7"
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="./index.css">
+    
+    <!-- Core Deps -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.0/dist/peerjs.min.js"></script>
+
+    <!-- Core Loader & Shim -->
+    <script type="module">
+      window.process = { env: { NODE_ENV: 'production' } };
+      
+      // 1. Shim Window UI (Bridge Core -> React)
+      window.ui = {
+        init: () => {},
+        renderList: () => { window.dispatchEvent(new CustomEvent('core-ui-update', { detail: { type: 'list' } })); },
+        appendMsg: (msg) => { window.dispatchEvent(new CustomEvent('core-ui-update', { detail: { type: 'msg', data: msg } })); },
+        updateSelf: () => { window.dispatchEvent(new CustomEvent('core-ui-update', { detail: { type: 'self' } })); },
+        clearMsgs: () => { window.dispatchEvent(new CustomEvent('core-ui-update', { detail: { type: 'clear' } })); },
+        downloadBlob: (blob, name) => { 
+            console.log('Download requested:', name);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = name;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        },
+        loadRemoteMedia: () => {} 
+      };
+      window.uiEvents = { init: () => {} };
+
+      // 2. Load Core Modules Manually (Relative Path for GitHub Pages)
+      const modules = [
+        './core/modules/constants.js',
+        './core/modules/utils.js',
+        './core/modules/state.js',
+        './core/modules/db.js',
+        './core/modules/protocol.js',
+        './core/modules/smart-core.js',
+        './core/modules/p2p.js',
+        './core/modules/hub.js',
+        './core/modules/mqtt.js'
+      ];
+
+      async function loadCore() {
+        try {
+          console.log('🚀 Booting Core...');
+          const cfg = await fetch('./core/config.json').then(r => r.json());
+          window.config = cfg;
+
+          for (const mod of modules) {
+            const m = await import(mod);
+            if (m.init) m.init();
+          }
+
+          // Start the main loop
+          await import('./core/app.js');
+          
+          console.log('✅ Core Ready');
+          window.__CORE_READY__ = true;
+          window.dispatchEvent(new Event('core-ready'));
+        } catch (e) {
+          console.error('Core Load Failed:', e);
+        }
+      }
+      
+      loadCore();
+    </script>
+  </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script type="module" src="./index.tsx"></script>
+  </body>
 </html>
