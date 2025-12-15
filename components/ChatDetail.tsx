@@ -85,6 +85,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       }
   };
 
+  // Mock function for menu items that are not implemented yet
+  const handleNotImplemented = (label: string) => {
+      onShowToast(`${label}功能暂未开放`);
+  };
+
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
       {/* Header */}
@@ -110,7 +115,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       </header>
 
       {/* Message List */}
-      <div className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative">
+      <div className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative" onClick={() => setIsPlusOpen(false)}>
         {messages.map((msg: any, idx) => {
           const isMe = msg.senderId === currentUserId;
           const isFile = msg.kind === 'SMART_FILE_UI';
@@ -159,6 +164,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                <textarea
                  value={inputValue}
                  onChange={(e) => setInputValue(e.target.value)}
+                 onFocus={() => setIsPlusOpen(false)}
                  rows={1}
                  className="w-full bg-white rounded-[6px] px-3 py-2.5 text-[16px] text-[#191919] outline-none resize-none overflow-hidden max-h-[120px] shadow-sm caret-[#07C160]"
                  style={{ minHeight: '40px' }}
@@ -174,15 +180,38 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
            ) : (
               <button 
                 onClick={() => setIsPlusOpen(!isPlusOpen)}
-                className="mb-2 p-1 text-[#191919] active:opacity-60"
+                className={`mb-2 p-1 text-[#191919] active:opacity-60 transition-transform duration-200 ${isPlusOpen ? 'rotate-45' : ''}`}
               >
                 <PlusCircle size={28} strokeWidth={1.5} />
               </button>
            )}
         </div>
+
+        {/* Plus Menu Action Sheet */}
+        {isPlusOpen && (
+            <div className="h-[220px] bg-[#F7F7F7] border-t border-gray-300/50 p-6 grid grid-cols-4 gap-y-6 gap-x-4 animate-in slide-in-from-bottom-10 duration-200">
+                <ActionItem icon={<ImageIcon size={28} strokeWidth={1.5} />} label="照片" onClick={() => handleNotImplemented('照片')} />
+                <ActionItem icon={<Camera size={28} strokeWidth={1.5} />} label="拍摄" onClick={() => handleNotImplemented('拍摄')} />
+                <ActionItem icon={<Video size={28} strokeWidth={1.5} />} label="视频通话" onClick={() => { if(onVideoCall) onVideoCall(); else handleNotImplemented('通话'); }} />
+                <ActionItem icon={<MapPin size={28} strokeWidth={1.5} />} label="位置" onClick={() => handleNotImplemented('位置')} />
+                <ActionItem icon={<Wallet size={28} strokeWidth={1.5} />} label="红包" onClick={() => handleNotImplemented('红包')} />
+                <ActionItem icon={<FolderHeart size={28} strokeWidth={1.5} />} label="文件" onClick={() => document.getElementById('fileInput')?.click()} />
+                <ActionItem icon={<UserIcon size={28} strokeWidth={1.5} />} label="名片" onClick={() => handleNotImplemented('名片')} />
+                <ActionItem icon={<div className="w-6 h-6 flex items-center justify-center font-bold text-gray-500">···</div>} label="更多" onClick={() => {}} />
+            </div>
+        )}
       </div>
     </div>
   );
 };
+
+const ActionItem: React.FC<{ icon: React.ReactNode, label: string, onClick: () => void }> = ({ icon, label, onClick }) => (
+    <div className="flex flex-col items-center gap-2 cursor-pointer active:opacity-60" onClick={onClick}>
+        <div className="w-[56px] h-[56px] bg-white rounded-[12px] flex items-center justify-center text-[#4C4C4C] shadow-sm border border-gray-200/50">
+            {icon}
+        </div>
+        <span className="text-[12px] text-gray-500">{label}</span>
+    </div>
+);
 
 export default ChatDetail;
