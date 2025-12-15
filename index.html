@@ -109,6 +109,7 @@
           console.log('🚀 Booting Core from:', CORE_BASE);
           
           // 0. Load MP4Box dynamically (Avoids Vite bundling issues)
+          // Ensure we use the full path so the browser can find it, but skip Vite bundling analysis
           await loadScript(CORE_BASE + 'modules/mp4box.all.min.js');
 
           // 1. Register Service Worker
@@ -131,6 +132,7 @@
           // 3. Import Modules
           for (const name of moduleNames) {
             const url = CORE_BASE + name;
+            // Use @vite-ignore to prevent static analysis errors
             const m = await import(/* @vite-ignore */ url);
             if (m.init) m.init();
           }
