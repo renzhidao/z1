@@ -68,7 +68,14 @@ async function boot() {
 
     // 3. 逐个加载模块并执行初始化
     for (const mod of modules) {
-        const path = `./modules/${mod}.js?t=` + Date.now();
+        let path;
+        if (mod.includes('/')) {
+            // 如果包含路径分隔符，说明已经是完整路径，不再加前缀
+            path = `./${mod}?t=` + Date.now();
+        } else {
+            // 否则视为标准模块，加前缀
+            path = `./modules/${mod}.js?t=` + Date.now();
+        }
         try {
             const m = await import(path);
             if (m.init) {
