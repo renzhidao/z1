@@ -63,24 +63,11 @@
         },
         loadRemoteMedia: () => {} 
       };
-      // Prevent native UI events
       window.uiEvents = { init: () => {} };
 
       // 2. Load Core Modules Manually
-      // FIX: Calculate absolute path to 'core/' based on window.location
-      function getCoreBase() {
-          const loc = window.location;
-          let path = loc.pathname;
-          if (path.endsWith('.html') || path.endsWith('.htm')) {
-              path = path.substring(0, path.lastIndexOf('/') + 1);
-          }
-          if (!path.endsWith('/')) {
-              path = path.substring(0, path.lastIndexOf('/') + 1);
-          }
-          return loc.origin + path + 'core/';
-      }
-
-      const CORE_BASE = getCoreBase();
+      // FIX: Use relative path './core/' which works well in Vite dist structure regardless of sub-path
+      const CORE_BASE = './core/';
       
       const moduleNames = [
         'modules/constants.js',
@@ -106,16 +93,15 @@
 
       async function loadCore() {
         try {
-          console.log('🚀 Booting Core from:', CORE_BASE);
+          console.log('🚀 Booting Core...');
           
           // 0. Load MP4Box dynamically (Avoids Vite bundling issues)
-          // Ensure we use the full path so the browser can find it, but skip Vite bundling analysis
           await loadScript(CORE_BASE + 'modules/mp4box.all.min.js');
 
           // 1. Register Service Worker
           if ('serviceWorker' in navigator) {
              try {
-               await navigator.serviceWorker.register('./core/sw.js', { scope: './' });
+               await navigator.serviceWorker.register(CORE_BASE + 'sw.js', { scope: './' });
                console.log('✅ SW Registered');
              } catch(err) {
                console.warn('⚠️ SW Registration Failed (Non-fatal):', err);
@@ -154,7 +140,8 @@
         }
       }
       
-      loadCore();
+      // Delay slightly to ensure deps are ready
+      setTimeout(loadCore, 100);
     </script>
   </head>
   <body>
