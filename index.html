@@ -69,10 +69,24 @@
       window.uiEvents = { init: () => {} };
 
       // 2. Load Core Modules Manually
-      // FIX: Use absolute path derived from window.location to ensure correct resolution
-      // even if Vite bundles this script into 'assets/' subfolder.
-      // e.g. https://site.com/z1/index.html -> https://site.com/z1/core/
-      const CORE_BASE = new URL('./core/', window.location.href).href;
+      // FIX: Calculate absolute path to 'core/' based on window.location
+      // This works even if Vite extracts this script to 'assets/js/'
+      function getCoreBase() {
+          const loc = window.location;
+          let path = loc.pathname;
+          // If we are at /z1/index.html, base is /z1/
+          // If we are at /z1/, base is /z1/
+          if (path.endsWith('.html') || path.endsWith('.htm')) {
+              path = path.substring(0, path.lastIndexOf('/') + 1);
+          }
+          if (!path.endsWith('/')) {
+              path = path.substring(0, path.lastIndexOf('/') + 1);
+          }
+          // Result: https://domain.com/z1/core/
+          return loc.origin + path + 'core/';
+      }
+
+      const CORE_BASE = getCoreBase();
       
       const moduleNames = [
         'modules/constants.js',
@@ -93,9 +107,7 @@
           // 0. Register Service Worker (Critical for Smart Core)
           if ('serviceWorker' in navigator) {
              try {
-               // SW path must also be absolute or strictly relative to root
-               const swPath = new URL('sw.js', CORE_BASE).href;
-               await navigator.serviceWorker.register(swPath, { scope: './' });
+               await navigator.serviceWorker.register('./core/sw.js', { scope: './' });
                console.log('✅ SW Registered');
              } catch(err) {
                console.warn('⚠️ SW Registration Failed (Non-fatal):', err);
@@ -104,20 +116,22 @@
 
           // 1. Load Config
           const cfg = await fetch(CORE_BASE + 'config.json').then(r => {
-             if(!r.ok) throw new Error(`Config Load 404: ${r.statusText} (${CORE_BASE}config.json)`);
+             if(!r.ok) throw new Error(`Config Load 404: ${r.statusText}`);
              return r.json();
           });
           window.config = cfg;
 
           // 2. Import Modules
           for (const name of moduleNames) {
-            // Use concatenated string to evade static analysis
-            const m = await import(/* @vite-ignore */ CORE_BASE + name);
+            const url = CORE_BASE + name;
+            // Use absolute URL to fetch modules
+            const m = await import(/* @vite-ignore */ url);
             if (m.init) m.init();
           }
 
           // 3. Start Main Loop
-          const appMod = await import(/* @vite-ignore */ CORE_BASE + 'app.js');
+          const appUrl = CORE_BASE + 'app.js';
+          const appMod = await import(/* @vite-ignore */ appUrl);
           if (appMod.init) {
               appMod.init(); // Execute the init function exported by app.js
           }
