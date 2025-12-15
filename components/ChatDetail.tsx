@@ -12,7 +12,7 @@ interface ChatDetailProps {
   onVideoCall?: () => void;
 }
 
-const EMOJIS = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😯","😪","😫","😴","😌","😛","😜","😝","🤤","😒","😓","😔","😕","🙃","🤑","😲","☹️","🙁","😖","😞","😟","😤","😢","😭","😦","😧","😨","😩","🤯","😬","😰","😱","😳","🤪","😵","😡","😠","🤬","😷","🤒","🤕","🤢","🤮","🤧","😇","🤠","🤡","🤥","🤫","🤭","🧐","🤓","😈","👿"];
+const EMOJIS = ["😀","😁","😂","🤣","","😄","","😆","😉","😊","😋","😎","","😘","😗","😙","😚","🙂","","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","","🤐","😯","😪","😫","😴","😌","😛","😜","😝","🤤","😒","😓","😔","😕","🙃","🤑","😲","☹️","🙁","😖","😞","😟","😤","😢","😭","😦","😧","😨","😩","🤯","😬","😰","😱","😳","🤪","😵","😡","😠","🤬","😷","🤒","🤕","🤢","🤮","🤧","😇","🤠","🤡","🤥","🤫","🤭","🧐","🤓","😈","👿"];
 
 // --- 辅助函数 ---
 const formatMessageTime = (date: Date) => {
@@ -52,10 +52,9 @@ const VoiceMessage: React.FC<{ duration: number, isMe: boolean, isPlaying: boole
   );
 };
 
-// --- 组件：智能视频 (本地预览 + 远程加载) ---
+// --- 组件：智能视频 (缺失补全) ---
 const VideoMessage: React.FC<{ msg: Message, isMe: boolean }> = ({ msg, isMe }) => {
     const [src, setSrc] = useState<string>('');
-    
     useEffect(() => {
         if (msg.meta?.fileObj) {
             const url = URL.createObjectURL(msg.meta.fileObj);
@@ -80,7 +79,7 @@ const VideoMessage: React.FC<{ msg: Message, isMe: boolean }> = ({ msg, isMe }) 
     );
 };
 
-// --- 组件：智能图片 (本地预览 + 自动下载 + 防裂图) ---
+// --- 组件：智能图片 (缺失补全) ---
 const ImageMessage: React.FC<{ msg: Message, isMe: boolean, onRetry: () => void }> = ({ msg, isMe, onRetry }) => {
     const [src, setSrc] = useState<string>('');
     const [error, setError] = useState(false);
@@ -90,18 +89,18 @@ const ImageMessage: React.FC<{ msg: Message, isMe: boolean, onRetry: () => void 
         setError(false);
         setLoading(true);
         if (msg.meta?.fileObj) {
-            // 核心修复：存在本地文件对象，直接预览，绝不白屏
+            // 本地文件：0延迟预览
             const url = URL.createObjectURL(msg.meta.fileObj);
             setSrc(url);
             setLoading(false);
             return () => URL.revokeObjectURL(url);
         } else if (msg.meta?.fileId && window.smartCore) {
+            // 远程文件
             const url = window.smartCore.play(msg.meta.fileId);
             if (url) {
                 setSrc(url);
                 setLoading(false);
             } else {
-                // URL生成失败，说明文件未下载，触发下载并显示错误态等待重试
                 setError(true);
                 setLoading(false);
                 if (!isMe) onRetry(); // 自动下载
@@ -181,7 +180,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       const unique = Array.from(new Map(msgs.map(m => [m.id, m])).values());
       return unique.map(m => {
           let kind = m.kind;
-          // 核心修复：严格根据 mime-type 纠正 kind，防止双重显示
           if (kind === 'SMART_FILE_UI' && m.meta?.fileType) {
               if (m.meta.fileType.startsWith('image/')) kind = 'image';
               else if (m.meta.fileType.startsWith('video/')) kind = 'video';
@@ -233,7 +231,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
 
       if (window.smartCore && window.protocol) {
           const { msg } = window.smartCore.sendFile(file, chat.id, { kind });
-          const metaWithFile = { ...msg.meta, fileType: file.type, fileObj: file }; // 关键：注入本地文件对象
+          const metaWithFile = { ...msg.meta, fileType: file.type, fileObj: file }; // 本地预览关键
           window.protocol.sendMsg(null, kind as any, metaWithFile);
           setMessages(prev => processMessages([...prev, { ...msg, meta: metaWithFile, kind, ts: Date.now(), timestamp: new Date() }]));
       }
