@@ -43,8 +43,6 @@
     <!-- Core Deps -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.0/dist/peerjs.min.js"></script>
-    <!-- Add MP4Box for Video Support -->
-    <script src="./core/modules/mp4box.all.min.js"></script>
 
     <!-- Core Loader & Shim -->
     <script type="module">
@@ -70,19 +68,15 @@
 
       // 2. Load Core Modules Manually
       // FIX: Calculate absolute path to 'core/' based on window.location
-      // This works even if Vite extracts this script to 'assets/js/'
       function getCoreBase() {
           const loc = window.location;
           let path = loc.pathname;
-          // If we are at /z1/index.html, base is /z1/
-          // If we are at /z1/, base is /z1/
           if (path.endsWith('.html') || path.endsWith('.htm')) {
               path = path.substring(0, path.lastIndexOf('/') + 1);
           }
           if (!path.endsWith('/')) {
               path = path.substring(0, path.lastIndexOf('/') + 1);
           }
-          // Result: https://domain.com/z1/core/
           return loc.origin + path + 'core/';
       }
 
@@ -100,11 +94,24 @@
         'modules/mqtt.js'
       ];
 
+      function loadScript(url) {
+        return new Promise((resolve) => {
+          const s = document.createElement('script');
+          s.src = url;
+          s.onload = resolve;
+          s.onerror = () => { console.warn('Script Load Failed (Non-fatal):', url); resolve(); };
+          document.head.appendChild(s);
+        });
+      }
+
       async function loadCore() {
         try {
           console.log('🚀 Booting Core from:', CORE_BASE);
           
-          // 0. Register Service Worker (Critical for Smart Core)
+          // 0. Load MP4Box dynamically (Avoids Vite bundling issues)
+          await loadScript(CORE_BASE + 'modules/mp4box.all.min.js');
+
+          // 1. Register Service Worker
           if ('serviceWorker' in navigator) {
              try {
                await navigator.serviceWorker.register('./core/sw.js', { scope: './' });
@@ -114,26 +121,25 @@
              }
           }
 
-          // 1. Load Config
+          // 2. Load Config
           const cfg = await fetch(CORE_BASE + 'config.json').then(r => {
              if(!r.ok) throw new Error(`Config Load 404: ${r.statusText}`);
              return r.json();
           });
           window.config = cfg;
 
-          // 2. Import Modules
+          // 3. Import Modules
           for (const name of moduleNames) {
             const url = CORE_BASE + name;
-            // Use absolute URL to fetch modules
             const m = await import(/* @vite-ignore */ url);
             if (m.init) m.init();
           }
 
-          // 3. Start Main Loop
+          // 4. Start Main Loop
           const appUrl = CORE_BASE + 'app.js';
           const appMod = await import(/* @vite-ignore */ appUrl);
           if (appMod.init) {
-              appMod.init(); // Execute the init function exported by app.js
+              appMod.init();
           }
           
           console.log('✅ Core Ready');
@@ -141,7 +147,6 @@
           window.dispatchEvent(new Event('core-ready'));
         } catch (e) {
           console.error('Core Load Failed:', e);
-          // Dispatch error to React
           window.__CORE_ERROR__ = e.message || String(e);
           window.dispatchEvent(new Event('core-error'));
         }
