@@ -63,11 +63,24 @@
         },
         loadRemoteMedia: () => {} 
       };
+      // Prevent native UI events
       window.uiEvents = { init: () => {} };
 
       // 2. Load Core Modules Manually
-      // FIX: Use relative path './core/' which works well in Vite dist structure regardless of sub-path
-      const CORE_BASE = './core/';
+      // FIX: Calculate absolute path to 'core/' based on window.location
+      function getCoreBase() {
+          const loc = window.location;
+          let path = loc.pathname;
+          if (path.endsWith('.html') || path.endsWith('.htm')) {
+              path = path.substring(0, path.lastIndexOf('/') + 1);
+          }
+          if (!path.endsWith('/')) {
+              path = path.substring(0, path.lastIndexOf('/') + 1);
+          }
+          return loc.origin + path + 'core/';
+      }
+
+      const CORE_BASE = getCoreBase();
       
       const moduleNames = [
         'modules/constants.js',
@@ -93,7 +106,7 @@
 
       async function loadCore() {
         try {
-          console.log('🚀 Booting Core...');
+          console.log('🚀 Booting Core from:', CORE_BASE);
           
           // 0. Load MP4Box dynamically (Avoids Vite bundling issues)
           await loadScript(CORE_BASE + 'modules/mp4box.all.min.js');
@@ -101,7 +114,7 @@
           // 1. Register Service Worker
           if ('serviceWorker' in navigator) {
              try {
-               await navigator.serviceWorker.register(CORE_BASE + 'sw.js', { scope: './' });
+               await navigator.serviceWorker.register('./core/sw.js', { scope: './' });
                console.log('✅ SW Registered');
              } catch(err) {
                console.warn('⚠️ SW Registration Failed (Non-fatal):', err);
@@ -118,7 +131,6 @@
           // 3. Import Modules
           for (const name of moduleNames) {
             const url = CORE_BASE + name;
-            // Use @vite-ignore to prevent static analysis errors
             const m = await import(/* @vite-ignore */ url);
             if (m.init) m.init();
           }
@@ -140,8 +152,7 @@
         }
       }
       
-      // Delay slightly to ensure deps are ready
-      setTimeout(loadCore, 100);
+      loadCore();
     </script>
   </head>
   <body>
