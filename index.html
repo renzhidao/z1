@@ -49,7 +49,6 @@
       window.process = { env: { NODE_ENV: 'production' } };
       
       // 1. Shim Window UI (Bridge Core -> React)
-      // 这会拦截核心对 UI 的操作，并转发给 React
       window.ui = {
         init: () => {},
         renderList: () => { window.dispatchEvent(new CustomEvent('core-ui-update', { detail: { type: 'list' } })); },
@@ -64,37 +63,39 @@
         },
         loadRemoteMedia: () => {} 
       };
-      // 阻止原生 UI 事件绑定
+      // Prevent native UI events
       window.uiEvents = { init: () => {} };
 
       // 2. Load Core Modules Manually
-      // 注意：这里排除了 ui-render.js 和 ui-events.js，防止冲突
-      const modules = [
-        './core/modules/constants.js',
-        './core/modules/utils.js',
-        './core/modules/state.js',
-        './core/modules/db.js',
-        './core/modules/protocol.js',
-        './core/modules/smart-core.js',
-        './core/modules/p2p.js',
-        './core/modules/hub.js',
-        './core/modules/mqtt.js'
+      // We use a base path variable to prevent Vite from resolving these paths at build time.
+      const CORE_BASE = './core/';
+      
+      const moduleNames = [
+        'modules/constants.js',
+        'modules/utils.js',
+        'modules/state.js',
+        'modules/db.js',
+        'modules/protocol.js',
+        'modules/smart-core.js',
+        'modules/p2p.js',
+        'modules/hub.js',
+        'modules/mqtt.js'
       ];
 
       async function loadCore() {
         try {
           console.log('🚀 Booting Core...');
-          const cfg = await fetch('./core/config.json').then(r => r.json());
+          const cfg = await fetch(CORE_BASE + 'config.json').then(r => r.json());
           window.config = cfg;
 
-          for (const mod of modules) {
-            // 使用 /* @vite-ignore */ 防止构建报错
-            const m = await import(/* @vite-ignore */ mod);
+          for (const name of moduleNames) {
+            // Use concatenated string to evade static analysis
+            const m = await import(/* @vite-ignore */ CORE_BASE + name);
             if (m.init) m.init();
           }
 
           // Start the main loop
-          await import(/* @vite-ignore */ './core/app.js');
+          await import(/* @vite-ignore */ CORE_BASE + 'app.js');
           
           console.log('✅ Core Ready');
           window.__CORE_READY__ = true;
