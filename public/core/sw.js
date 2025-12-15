@@ -1,4 +1,4 @@
-const CACHE_NAME = 'p1-stream-v1765199409-p2'; // PATCH: Version Bump（确保 sw 更新生效）
+const CACHE_NAME = 'p1-v1765808928-final';
 const CORE_ASSETS = [
   './',
   './index.html',
