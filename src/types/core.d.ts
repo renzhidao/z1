@@ -41,6 +41,7 @@ export interface AppStateData {
 declare global {
   interface Window {
     __CORE_READY__: boolean;
+    __CORE_ERROR__?: string;
     state: AppStateData;
     p2p: {
       connectTo(id: string): void;
