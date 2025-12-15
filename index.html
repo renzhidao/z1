@@ -49,6 +49,7 @@
       window.process = { env: { NODE_ENV: 'production' } };
       
       // 1. Shim Window UI (Bridge Core -> React)
+      // 这会拦截核心对 UI 的操作，并转发给 React
       window.ui = {
         init: () => {},
         renderList: () => { window.dispatchEvent(new CustomEvent('core-ui-update', { detail: { type: 'list' } })); },
@@ -63,9 +64,11 @@
         },
         loadRemoteMedia: () => {} 
       };
+      // 阻止原生 UI 事件绑定
       window.uiEvents = { init: () => {} };
 
-      // 2. Load Core Modules Manually (Relative Path for GitHub Pages)
+      // 2. Load Core Modules Manually
+      // 注意：这里排除了 ui-render.js 和 ui-events.js，防止冲突
       const modules = [
         './core/modules/constants.js',
         './core/modules/utils.js',
@@ -85,12 +88,13 @@
           window.config = cfg;
 
           for (const mod of modules) {
-            const m = await import(mod);
+            // 使用 /* @vite-ignore */ 防止构建报错
+            const m = await import(/* @vite-ignore */ mod);
             if (m.init) m.init();
           }
 
           // Start the main loop
-          await import('./core/app.js');
+          await import(/* @vite-ignore */ './core/app.js');
           
           console.log('✅ Core Ready');
           window.__CORE_READY__ = true;
