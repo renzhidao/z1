@@ -15,8 +15,9 @@ interface ChatDetailProps {
 // --- 常用 Emoji 列表 ---
 const EMOJIS = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😯","😪","😫","😴","😌","😛","😜","😝","🤤","😒","😓","😔","😕","🙃","🤑","😲","☹️","🙁","😖","😞","😟","😤","😢","😭","😦","😧","😨","😩","🤯","😬","😰","😱","😳","🤪","😵","😡","😠","🤬","😷","🤒","🤕","🤢","🤮","","😇","🤠","🤡","🤥","🤫","🤭","🧐","🤓","😈","👿"];
 
-// --- 辅助函数 ---
+// --- 辅助函数：安全的时间格式化 ---
 const formatMessageTime = (date: Date) => {
+  if (isNaN(date.getTime())) return ""; // 防止无效日期导致崩溃
   const now = new Date();
   const isToday = now.toDateString() === date.toDateString();
   const yesterday = new Date();
@@ -68,9 +69,8 @@ const VideoMessage: React.FC<{ src: string, fileName: string, isMe: boolean }> =
     </div>
 );
 
-// --- 组件：图片消息（修复白屏问题）---
+// --- 组件：图片消息（修复白屏 + 防止崩溃）---
 const ImageMessage: React.FC<{ msg: Message, isMe: boolean, onRetry: () => void }> = ({ msg, isMe, onRetry }) => {
-    // 优先使用临时生成的 blobUrl (刚发送时)，其次是 text (旧数据)，最后是 core 解析的 fileId
     const getInitialSrc = () => {
         if (msg.meta?.blobUrl) return msg.meta.blobUrl;
         if (msg.meta?.fileId && window.smartCore) return window.smartCore.play(msg.meta.fileId);
@@ -81,11 +81,8 @@ const ImageMessage: React.FC<{ msg: Message, isMe: boolean, onRetry: () => void 
     const [error, setError] = useState(false);
 
     useEffect(() => {
-        // 当消息更新（例如发送成功后 id 变化或下载完成），更新图片源
-        if (msg.meta?.fileId && window.smartCore) {
-            const remoteSrc = window.smartCore.play(msg.meta.fileId);
-            // 只有当没有临时 blobUrl 或远端地址已就绪时才切换
-            if (!msg.meta.blobUrl) setSrc(remoteSrc);
+        if (msg.meta?.fileId && window.smartCore && !msg.meta.blobUrl) {
+            setSrc(window.smartCore.play(msg.meta.fileId));
         }
     }, [msg]);
 
@@ -153,19 +150,20 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   useEffect(() => {
     if (window.db) {
         window.db.getRecent(50, chat.id).then(msgs => {
-            setMessages(processMessages(msgs));
+            if (msgs) setMessages(processMessages(msgs));
             setTimeout(scrollToBottom, 100);
         });
     }
     const handler = (e: CustomEvent) => {
         const { type, data } = e.detail;
-        if (type === 'msg') {
+        if (type === 'msg' && data) { // 增加 data 存在性检查
             const raw = data;
             if ((chat.id === 'all' && raw.target === 'all') || 
                 (raw.senderId === chat.id && raw.target === currentUserId) || 
                 (raw.senderId === currentUserId && raw.target === chat.id)) {
                 
                 setMessages(prev => {
+                    // 防止重复添加
                     if (prev.find(m => m.id === raw.id)) return prev;
                     return processMessages([...prev, raw]);
                 });
@@ -177,16 +175,19 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     return () => window.removeEventListener('core-ui-update', handler as EventListener);
   }, [chat.id, currentUserId]);
 
+  // 修复：增加安全检查，防止渲染崩溃
   const processMessages = (msgs: any[]): Message[] => {
-      const unique = Array.from(new Map(msgs.map(m => [m.id, m])).values());
+      if (!Array.isArray(msgs)) return [];
+      const unique = Array.from(new Map(msgs.filter(m => m && m.id).map(m => [m.id, m])).values());
       return unique.map(m => {
           let kind = m.kind;
           if (kind === 'SMART_FILE_UI' && m.meta?.fileType) {
               if (m.meta.fileType.startsWith('image/')) kind = 'image';
               else if (m.meta.fileType.startsWith('video/')) kind = 'video';
           }
-          return { ...m, kind, timestamp: new Date(m.ts) };
-      }).sort((a: any, b: any) => a.ts - b.ts);
+          // 确保 timestamp 是有效的 Date 对象
+          return { ...m, kind, timestamp: m.ts ? new Date(m.ts) : new Date() };
+      }).sort((a: any, b: any) => (a.ts || 0) - (b.ts || 0));
   };
 
   const triggerDownload = (msg: Message) => {
@@ -203,7 +204,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     setInputValue('');
   };
 
-  // 恢复：PC端回车发送
+  // 恢复：PC端回车发送，阻止默认提交
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { 
         e.preventDefault(); 
@@ -328,11 +329,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       {activeCall && <CallOverlay user={chat.user} type={activeCall} onHangup={() => setActiveCall(null)} />}
 
       <header className="flex items-center justify-between px-2 h-[56px] bg-[#EDEDED]/90 backdrop-blur-md border-b border-gray-300/50 shrink-0 z-10">
-        <button onClick={onBack} className="p-2 -ml-1 text-[#191919] hover:bg-gray-200/50 rounded-full flex items-center active:opacity-60">
+        <button type="button" onClick={onBack} className="p-2 -ml-1 text-[#191919] hover:bg-gray-200/50 rounded-full flex items-center active:opacity-60">
           <ChevronLeft size={26} strokeWidth={1.5} /><span className="text-[16px] ml-[-4px]">{chat.unreadCount > 0 ? `(${chat.unreadCount})` : '微信'}</span>
         </button>
         <span className="text-[17px] font-medium text-[#191919] absolute left-1/2 -translate-x-1/2">{chat.user.name}</span>
-        <button onClick={onUserClick} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60"><MoreHorizontal size={24} /></button>
+        <button type="button" onClick={onUserClick} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60"><MoreHorizontal size={24} /></button>
       </header>
 
       <div 
@@ -343,13 +344,17 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       >
         {messages.map((msg, idx) => {
           const isMe = msg.senderId === currentUserId;
-          const showTime = idx === 0 || (new Date(msg.timestamp).getTime() - new Date(messages[idx - 1].timestamp).getTime() > 5 * 60 * 1000);
+          // 安全的日期比较
+          const prevTime = idx > 0 && messages[idx-1] ? new Date(messages[idx - 1].timestamp).getTime() : 0;
+          const currTime = new Date(msg.timestamp).getTime();
+          const showTime = idx === 0 || (currTime - prevTime > 5 * 60 * 1000);
+          
           const isContextActive = msgContextMenu.visible && msgContextMenu.message?.id === msg.id;
           const bubbleColor = isMe ? (isContextActive ? '#89D960' : '#95EC69') : (isContextActive ? '#F2F2F2' : '#FFFFFF');
           
           return (
-            <div key={msg.id} className="mb-4 relative">
-              {showTime && <div className="flex justify-center mt-6 mb-[18px]"><span className="text-[12px] text-gray-400 bg-gray-200 px-2 py-0.5 rounded-[4px]">{formatMessageTime(new Date(msg.timestamp))}</span></div>}
+            <div key={msg.id || idx} className="mb-4 relative">
+              {showTime && !isNaN(currTime) && <div className="flex justify-center mt-6 mb-[18px]"><span className="text-[12px] text-gray-400 bg-gray-200 px-2 py-0.5 rounded-[4px]">{formatMessageTime(new Date(msg.timestamp))}</span></div>}
               <div className={`flex ${isMe ? 'flex-row-reverse' : 'flex-row'} items-start`}>
                 <img 
                     src={isMe ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUserId}` : chat.user.avatar} 
@@ -409,32 +414,32 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
 
       <div className={`bg-[#F7F7F7] border-t border-gray-300/50 transition-all duration-200 z-30 ${isPlusOpen || isEmojiOpen ? 'pb-0' : 'pb-safe-bottom'}`}>
         <div className="flex items-end px-3 py-2 gap-2 min-h-[56px]">
-           <button onClick={() => setIsVoiceMode(!isVoiceMode)} className="mb-2 p-1 text-[#191919] active:opacity-60">{isVoiceMode ? <Keyboard size={28} /> : <Mic size={28} />}</button>
+           <button type="button" onClick={() => setIsVoiceMode(!isVoiceMode)} className="mb-2 p-1 text-[#191919] active:opacity-60">{isVoiceMode ? <Keyboard size={28} /> : <Mic size={28} />}</button>
            <div className="flex-1 mb-1.5">
              {isVoiceMode ? (
-               <button className={`w-full h-[40px] rounded-[6px] font-medium text-[16px] select-none ${voiceRecording ? 'bg-[#DEDEDE]' : 'bg-white active:bg-[#DEDEDE]'}`} onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording}>{voiceRecording ? '松开 结束' : '按住 说话'}</button>
+               <button type="button" className={`w-full h-[40px] rounded-[6px] font-medium text-[16px] select-none ${voiceRecording ? 'bg-[#DEDEDE]' : 'bg-white active:bg-[#DEDEDE]'}`} onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording}>{voiceRecording ? '松开 结束' : '按住 说话'}</button>
              ) : (
                <textarea 
                   value={inputValue} 
                   onChange={(e) => setInputValue(e.target.value)} 
-                  onKeyDown={handleKeyPress} // 恢复回车发送
+                  onKeyDown={handleKeyPress} 
                   rows={1} 
                   className="w-full bg-white rounded-[6px] px-3 py-2.5 text-[16px] outline-none resize-none max-h-[120px] shadow-sm" 
                   style={{ minHeight: '40px' }} 
                />
              )}
            </div>
-           <button onClick={toggleEmojiMenu} className="mb-2 p-1 text-[#191919] active:opacity-60"><Smile size={28} /></button>
+           <button type="button" onClick={toggleEmojiMenu} className="mb-2 p-1 text-[#191919] active:opacity-60"><Smile size={28} /></button>
            {inputValue.trim() ? (
-              <button onClick={handleSendText} className="mb-2 bg-[#07C160] text-white px-3 py-1.5 rounded-[4px] text-[14px] font-medium active:bg-[#06AD56]">发送</button>
+              <button type="button" onClick={handleSendText} className="mb-2 bg-[#07C160] text-white px-3 py-1.5 rounded-[4px] text-[14px] font-medium active:bg-[#06AD56]">发送</button>
            ) : (
-              <button onClick={togglePlusMenu} className="mb-2 p-1 text-[#191919] active:opacity-60 transition-transform duration-200" style={{ transform: isPlusOpen ? 'rotate(45deg)' : 'rotate(0)' }}><PlusCircle size={28} /></button>
+              <button type="button" onClick={togglePlusMenu} className="mb-2 p-1 text-[#191919] active:opacity-60 transition-transform duration-200" style={{ transform: isPlusOpen ? 'rotate(45deg)' : 'rotate(0)' }}><PlusCircle size={28} /></button>
            )}
         </div>
 
         {isEmojiOpen && (
             <div className="h-[240px] bg-[#F7F7F7] border-t border-gray-300/50 p-4 pb-safe-bottom overflow-y-auto grid grid-cols-8 gap-4 content-start">
-                {EMOJIS.map(emo => <button key={emo} onClick={() => handleEmojiClick(emo)} className="text-2xl hover:bg-gray-200 rounded p-1">{emo}</button>)}
+                {EMOJIS.map(emo => <button type="button" key={emo} onClick={() => handleEmojiClick(emo)} className="text-2xl hover:bg-gray-200 rounded p-1">{emo}</button>)}
             </div>
         )}
 
