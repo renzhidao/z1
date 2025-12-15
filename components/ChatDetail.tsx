@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
-import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, X, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, PlayCircle } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, X, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, PlayCircle, Map } from 'lucide-react';
 import CallOverlay from './CallOverlay';
 
 interface ChatDetailProps {
@@ -12,7 +12,10 @@ interface ChatDetailProps {
   onVideoCall?: () => void;
 }
 
-// --- 辅助函数：时间格式化 ---
+// --- 常用 Emoji 列表 ---
+const EMOJIS = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😯","😪","😫","😴","😌","😛","😜","😝","🤤","😒","😓","😔","😕","🙃","🤑","😲","☹️","🙁","😖","😞","😟","😤","😢","😭","😦","😧","😨","😩","🤯","😬","😰","😱","😳","🤪","😵","😡","😠","🤬","😷","🤒","🤕","🤢","🤮","","😇","🤠","🤡","🤥","🤫","🤭","🧐","🤓","😈","👿"];
+
+// --- 辅助函数：时间格式化 (恢复原版逻辑) ---
 const formatMessageTime = (date: Date) => {
   const now = new Date();
   const isToday = now.toDateString() === date.toDateString();
@@ -41,25 +44,20 @@ const formatMessageTime = (date: Date) => {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${timePart}`;
 };
 
-// --- 辅助组件：语音图标 ---
-const VoiceIcon: React.FC<{ isMe: boolean; isPlaying: boolean }> = ({ isMe, isPlaying }) => (
-  <div className={`flex items-center justify-center w-5 h-5 ${isMe ? 'rotate-180' : ''}`}>
-     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M5 11a1 1 0 0 1 0 2" className={`${isPlaying ? 'animate-voice-1' : ''} text-[#191919]`} style={{opacity: isPlaying ? 0 : 1}} />
-        <path d="M8.5 8.5a5 5 0 0 1 0 7" className={`${isPlaying ? 'animate-voice-2' : ''} text-[#191919]`} style={{opacity: isPlaying ? 0 : 1}} />
-        <path d="M12 6a8 8 0 0 1 0 12" className={`${isPlaying ? 'animate-voice-3' : ''} text-[#191919]`} style={{opacity: isPlaying ? 0 : 1}} />
-     </svg>
-  </div>
-);
-
-// --- 辅助组件：语音气泡 ---
+// --- 组件：语音气泡 ---
 const VoiceMessage: React.FC<{ duration: number, isMe: boolean, isPlaying: boolean, onPlay: () => void }> = ({ duration, isMe, isPlaying, onPlay }) => {
   const width = Math.min(Math.max(80 + duration * 6, 80), 240);
   const bgColor = isMe ? '#95EC69' : '#FFFFFF';
   return (
     <div className={`flex items-center ${isMe ? 'justify-end' : 'justify-start'}`} onClick={(e) => { e.stopPropagation(); onPlay(); }}>
        <div className={`h-[40px] rounded-[4px] flex items-center px-3 cursor-pointer active:opacity-80 transition-colors select-none relative shadow-sm ${isMe ? 'flex-row-reverse justify-start' : 'flex-row justify-start'}`} style={{ width: `${width}px`, backgroundColor: bgColor }}>
-         <div className="flex-shrink-0"><VoiceIcon isMe={isMe} isPlaying={isPlaying} /></div>
+         <div className="flex-shrink-0">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={isMe ? 'rotate-180' : ''}>
+               <path d="M5 11a1 1 0 0 1 0 2" style={{opacity: isPlaying ? 0 : 1}} className={isPlaying ? 'animate-pulse' : ''}/>
+               <path d="M8.5 8.5a5 5 0 0 1 0 7" style={{opacity: isPlaying ? 0 : 1}} className={isPlaying ? 'animate-pulse delay-75' : ''}/>
+               <path d="M12 6a8 8 0 0 1 0 12" style={{opacity: isPlaying ? 0 : 1}} className={isPlaying ? 'animate-pulse delay-150' : ''}/>
+            </svg>
+         </div>
          <span className={`text-[15px] text-[#191919] font-normal flex-shrink-0 ${isMe ? 'mr-1' : 'ml-1'}`}>{duration}"</span>
          <div className={`absolute top-1/2 -translate-y-1/2 w-0 h-0 border-[6px] border-transparent ${isMe ? 'right-[-6px]' : 'left-[-6px]'}`} style={{ borderLeftColor: isMe ? bgColor : 'transparent', borderRightColor: !isMe ? bgColor : 'transparent', borderTopColor: 'transparent', borderBottomColor: 'transparent' }}></div>
        </div>
@@ -68,17 +66,64 @@ const VoiceMessage: React.FC<{ duration: number, isMe: boolean, isPlaying: boole
   );
 };
 
-// --- 辅助组件：视频消息 ---
-const VideoMessage: React.FC<{ src: string, fileName: string }> = ({ src, fileName }) => (
-    <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
-        <video src={src} controls className="w-full max-h-[300px]" />
-        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-            视频
-        </div>
+// --- 组件：视频消息 ---
+const VideoMessage: React.FC<{ src: string, fileName: string, isMe: boolean }> = ({ src, fileName, isMe }) => (
+    <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black group cursor-pointer">
+        <video 
+            src={src} 
+            controls 
+            playsInline
+            className="w-full max-h-[300px] bg-black"
+            onError={(e) => { (e.target as HTMLVideoElement).poster = "https://placehold.co/400x300/000000/FFFFFF?text=点击加载视频"; }}
+        />
+        {!isMe && <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">视频</div>}
     </div>
 );
 
-// --- 辅助组件：长按菜单项 ---
+// --- 组件：图片消息（修复白屏 + 防止崩溃）---
+const ImageMessage: React.FC<{ msg: Message, isMe: boolean, onRetry: () => void }> = ({ msg, isMe, onRetry }) => {
+    const getInitialSrc = () => {
+        if (msg.meta?.blobUrl) return msg.meta.blobUrl;
+        if (msg.meta?.fileId && window.smartCore) return window.smartCore.play(msg.meta.fileId);
+        return msg.txt || '';
+    };
+
+    const [src, setSrc] = useState<string>(getInitialSrc());
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+        if (msg.meta?.fileId && window.smartCore && !msg.meta.blobUrl) {
+            setSrc(window.smartCore.play(msg.meta.fileId));
+        }
+    }, [msg]);
+
+    const handleError = () => {
+        if (!error && !isMe) {
+            setError(true);
+            onRetry(); 
+        }
+    };
+
+    if (error) {
+         return (
+             <div onClick={() => { setError(false); onRetry(); }} className="w-[120px] h-[120px] bg-gray-100 flex flex-col items-center justify-center rounded-[6px] text-gray-400 gap-2 cursor-pointer border border-gray-200">
+                 <ImageIcon size={32} />
+                 <span className="text-[12px]">点击加载图片</span>
+             </div>
+         );
+    }
+
+    return (
+        <img 
+            src={src} 
+            className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover" 
+            alt="Image" 
+            onError={handleError}
+        />
+    );
+};
+
+// --- 组件：长按菜单项 ---
 const ContextMenuItem: React.FC<{ icon: React.ReactNode, label: string, onClick?: () => void }> = ({ icon, label, onClick }) => (
   <div onClick={onClick} className="flex flex-col items-center justify-center py-2 cursor-pointer active:bg-white/10 rounded-[4px]">
      <div className="text-white mb-1.5">{React.cloneElement(icon as React.ReactElement<any>, { size: 20, strokeWidth: 1.5 })}</div><span className="text-[11px] text-white/90">{label}</span>
@@ -90,6 +135,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isPlusOpen, setIsPlusOpen] = useState(false);
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
@@ -100,31 +146,44 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const voiceStartTimeRef = useRef<number>(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // --- 核心逻辑注入：数据加载与监听 ---
+  // --- 核心逻辑注入：完全恢复原版写法 ---
   useEffect(() => {
+    // 1. Initial Load (原版逻辑)
     if (window.db) {
         window.db.getRecent(50, chat.id).then(msgs => {
-            const mapped = msgs.map(m => ({
-                ...m,
-                text: m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName}` : m.kind === 'image' ? '[图片]' : m.kind === 'voice' ? `[语音] ${m.meta?.fileName}` : ''),
-                timestamp: new Date(m.ts)
-            }));
+            if (!msgs) return;
+            // 恢复原版的直接 map 逻辑，不使用 processMessages
+            const mapped = msgs.map(m => {
+                let kind = m.kind;
+                // 仅保留必要的文件类型修正
+                if (kind === 'SMART_FILE_UI' && m.meta?.fileType) {
+                    if (m.meta.fileType.startsWith('image/')) kind = 'image';
+                    else if (m.meta.fileType.startsWith('video/')) kind = 'video';
+                }
+                return {
+                    ...m,
+                    kind,
+                    text: m.txt || (kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName}` : kind === 'image' ? '[图片]' : kind === 'voice' ? `[语音] ${m.meta?.fileName}` : ''),
+                    timestamp: new Date(m.ts)
+                };
+            });
             setMessages(mapped.sort((a,b) => a.ts - b.ts));
             setTimeout(scrollToBottom, 100);
         });
     }
 
+    // 2. Event Listener (原版逻辑)
     const handler = (e: CustomEvent) => {
         const { type, data } = e.detail;
         if (type === 'msg') {
@@ -133,12 +192,22 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
             const isRelated = (raw.senderId === chat.id && raw.target === currentUserId) || (raw.senderId === currentUserId && raw.target === chat.id);
             
             if (isPublic || isRelated) {
+                // 恢复原版的单独构建 newMsg 逻辑
+                let kind = raw.kind;
+                if (kind === 'SMART_FILE_UI' && raw.meta?.fileType) {
+                    if (raw.meta.fileType.startsWith('image/')) kind = 'image';
+                    else if (raw.meta.fileType.startsWith('video/')) kind = 'video';
+                }
+
                 const newMsg: Message = {
                     ...raw,
-                    text: raw.txt || (raw.kind === 'SMART_FILE_UI' ? `[文件] ${raw.meta?.fileName}` : raw.kind === 'image' ? '[图片]' : raw.kind === 'voice' ? `[语音] ${raw.meta?.fileName}` : ''),
+                    kind,
+                    text: raw.txt || (kind === 'SMART_FILE_UI' ? `[文件] ${raw.meta?.fileName}` : kind === 'image' ? '[图片]' : kind === 'voice' ? `[语音] ${raw.meta?.fileName}` : ''),
                     timestamp: new Date(raw.ts)
                 };
+
                 setMessages(prev => {
+                    // 原版的去重逻辑
                     if (prev.find(m => m.id === newMsg.id)) return prev;
                     return [...prev, newMsg].sort((a: any,b: any) => a.ts - b.ts);
                 });
@@ -151,6 +220,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     return () => window.removeEventListener('core-ui-update', handler as EventListener);
   }, [chat.id, currentUserId]);
 
+  const triggerDownload = (msg: Message) => {
+      if (msg.meta?.fileId && window.smartCore) {
+          window.smartCore.download(msg.meta.fileId, msg.meta.fileName);
+      }
+  };
+
+  // --- 发送逻辑 ---
   const handleSendText = async () => {
     if (!inputValue.trim()) return;
     if (window.protocol) window.protocol.sendMsg(inputValue);
@@ -158,19 +234,31 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     setInputValue('');
   };
 
-  const handleSmartFileDownload = (msg: any) => {
-      if (msg.meta && window.smartCore) {
-          window.smartCore.download(msg.meta.fileId, msg.meta.fileName);
-          onShowToast("开始下载...");
-      }
+  // 恢复：PC端回车发送
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { 
+        e.preventDefault(); 
+        handleSendText(); 
+    }
   };
 
+  const handleSendLocation = () => {
+      if (!navigator.geolocation) return onShowToast("不支持定位");
+      onShowToast("正在获取位置...");
+      navigator.geolocation.getCurrentPosition(pos => {
+          const text = `[位置] ${pos.coords.latitude.toFixed(4)},${pos.coords.longitude.toFixed(4)}`;
+          if (window.protocol) window.protocol.sendMsg(text);
+          setIsPlusOpen(false);
+      }, () => onShowToast("获取位置失败"));
+  };
+
+  // --- 语音/文件处理 ---
   const handlePlayVoice = (msg: Message) => {
     if (!msg.meta?.fileId || !window.smartCore) return;
-    
+    if (!window.smartCore.play(msg.meta.fileId)) window.smartCore.download(msg.meta.fileId);
+
     if (playingMessageId === msg.id) {
-        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-        setPlayingMessageId(null);
+        audioRef.current?.pause(); setPlayingMessageId(null);
         return;
     }
     if (audioRef.current) audioRef.current.pause();
@@ -178,86 +266,45 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     const url = window.smartCore.play(msg.meta.fileId, msg.meta.fileName);
     const audio = new Audio(url);
     audioRef.current = audio;
-    
     setPlayingMessageId(msg.id);
-    audio.onended = () => { setPlayingMessageId(null); audioRef.current = null; };
-    audio.play().catch(e => { console.error("Play failed", e); onShowToast("播放失败"); setPlayingMessageId(null); });
+    audio.onended = () => setPlayingMessageId(null);
+    audio.play().catch(() => { onShowToast("正在加载语音..."); triggerDownload(msg); });
   };
 
-  // --- 录音逻辑 ---
-  const startRecording = async () => {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-        voiceStartTimeRef.current = Date.now();
-
-        mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
-        mediaRecorder.onstop = async () => {
-            const duration = Math.round((Date.now() - voiceStartTimeRef.current) / 1000);
-            if (duration < 1) { onShowToast("说话时间太短"); return; }
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            const file = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
-            
-            if (window.smartCore && window.protocol) {
-                const { msg } = window.smartCore.sendFile(file, chat.id, { kind: 'voice', txt: duration.toString() });
-                window.protocol.sendMsg(null, 'voice', { ...msg.meta, fileObj: file });
-            }
-        };
-        mediaRecorder.start();
-        setVoiceRecording(true);
-    } catch (err) { console.error(err); onShowToast("无法访问麦克风"); }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && voiceRecording) {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-        setVoiceRecording(false);
-    }
-  };
-
-  // --- 文件选择 ---
-  const handleFileAction = (type: 'image' | 'video' | 'file') => {
-      if (!fileInputRef.current) return;
-      fileInputRef.current.value = '';
-      if (type === 'image') fileInputRef.current.accept = "image/*";
-      else if (type === 'video') fileInputRef.current.accept = "video/*";
-      else fileInputRef.current.accept = "*/*";
-      fileInputRef.current.click();
-      setIsPlusOpen(false);
-  };
-
+  // 修复：发送图片白屏 - 生成 blobUrl
+  // 注意：这里我们手动添加消息到列表，模仿原版可能存在的乐观更新，但结构要匹配 handler
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
       
       let kind = 'SMART_FILE_UI';
       if (file.type.startsWith('image/')) kind = 'image';
-      else if (file.type.startsWith('video/')) kind = 'video'; // Added video type support
+      else if (file.type.startsWith('video/')) kind = 'video';
+
+      const blobUrl = URL.createObjectURL(file);
 
       if (window.smartCore && window.protocol) {
           const { msg } = window.smartCore.sendFile(file, chat.id, { kind });
-          // Ensure meta.fileType is set for video rendering detection
-          if (kind === 'video') msg.meta = { ...msg.meta, fileType: file.type };
+          if (kind === 'video' || kind === 'image') {
+               msg.meta = { ...msg.meta, fileType: file.type, blobUrl }; 
+          }
           window.protocol.sendMsg(null, kind as any, { ...msg.meta, fileObj: file });
+          
+          // 手动乐观更新 (保持与 handler 一致的结构)
+          const newMsg: Message = {
+            ...msg,
+            kind,
+            text: msg.txt || '',
+            ts: Date.now(),
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts));
       }
+      setIsPlusOpen(false);
   };
 
-  // --- 通话发起 ---
-  const startCall = (type: 'voice' | 'video') => {
-      setShowCallMenu(false);
-      setActiveCall(type);
-  };
-
-  // --- 交互事件 ---
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendText(); }
-  };
-
-  const togglePlusMenu = () => { setIsPlusOpen(!isPlusOpen); setTimeout(scrollToBottom, 100); };
-
+  // --- 恢复：长按/右键菜单逻辑 ---
   const handleMessageTouchStart = (e: React.TouchEvent, msg: Message) => {
     if (msg.kind === 'voice') return;
     const touch = e.touches[0];
@@ -271,114 +318,109 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   };
   const handleMessageTouchEnd = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
 
+  // --- UI 交互 ---
+  const togglePlusMenu = () => { setIsPlusOpen(!isPlusOpen); setIsEmojiOpen(false); setTimeout(scrollToBottom, 100); };
+  const toggleEmojiMenu = () => { setIsEmojiOpen(!isEmojiOpen); setIsPlusOpen(false); setTimeout(scrollToBottom, 100); };
+  const handleEmojiClick = (emoji: string) => setInputValue(prev => prev + emoji);
+
+  const startRecording = async () => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+        voiceStartTimeRef.current = Date.now();
+        mediaRecorderRef.current.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+        mediaRecorderRef.current.onstop = () => {
+            const duration = Math.round((Date.now() - voiceStartTimeRef.current) / 1000);
+            if (duration < 1) return onShowToast("说话时间太短");
+            const file = new File([new Blob(audioChunksRef.current, { type: 'audio/webm' })], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+            if (window.smartCore && window.protocol) {
+                const { msg } = window.smartCore.sendFile(file, chat.id, { kind: 'voice', txt: duration.toString() });
+                window.protocol.sendMsg(null, 'voice', { ...msg.meta, fileObj: file });
+            }
+        };
+        mediaRecorderRef.current.start();
+        setVoiceRecording(true);
+    } catch { onShowToast("无法访问麦克风"); }
+  };
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && voiceRecording) {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        setVoiceRecording(false);
+    }
+  };
+
   const menuItems = [
-      { icon: <ImageIcon size={24} />, label: '照片', action: () => handleFileAction('image') },
-      { icon: <Camera size={24} />, label: '拍摄', action: () => handleFileAction('image') },
+      { icon: <ImageIcon size={24} />, label: '照片', action: () => { fileInputRef.current!.accept="image/*"; fileInputRef.current!.click(); } },
+      { icon: <Camera size={24} />, label: '拍摄', action: () => { fileInputRef.current!.accept="image/*"; fileInputRef.current!.capture="environment"; fileInputRef.current!.click(); } },
       { icon: <Video size={24} />, label: '视频通话', action: () => setShowCallMenu(true) },
-      { icon: <MapPin size={24} />, label: '位置', action: () => {} },
+      { icon: <MapPin size={24} />, label: '位置', action: handleSendLocation },
       { icon: <Wallet size={24} />, label: '红包', action: () => {} },
       { icon: <FolderHeart size={24} />, label: '收藏', action: () => {} },
       { icon: <UserIcon size={24} />, label: '个人名片', action: () => {} },
-      { icon: <Smartphone size={24} />, label: '文件', action: () => handleFileAction('file') },
+      { icon: <Smartphone size={24} />, label: '文件', action: () => { fileInputRef.current!.accept="*/*"; fileInputRef.current!.click(); } },
   ];
 
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
       <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
+      {activeCall && <CallOverlay user={chat.user} type={activeCall} onHangup={() => setActiveCall(null)} />}
 
-      {/* Call Overlay */}
-      {activeCall && (
-          <CallOverlay 
-              user={chat.user} 
-              type={activeCall} 
-              onHangup={() => setActiveCall(null)} 
-          />
-      )}
-
-      {/* Header */}
       <header className="flex items-center justify-between px-2 h-[56px] bg-[#EDEDED]/90 backdrop-blur-md border-b border-gray-300/50 shrink-0 z-10">
-        <button onClick={onBack} className="p-2 -ml-1 text-[#191919] hover:bg-gray-200/50 rounded-full transition-colors flex items-center active:opacity-60">
-          <ChevronLeft size={26} strokeWidth={1.5} />
-          <span className="text-[16px] font-normal ml-[-4px]">
-             {chat.unreadCount > 0 ? `(${chat.unreadCount})` : '微信'}
-          </span>
+        <button type="button" onClick={onBack} className="p-2 -ml-1 text-[#191919] hover:bg-gray-200/50 rounded-full flex items-center active:opacity-60">
+          <ChevronLeft size={26} strokeWidth={1.5} /><span className="text-[16px] ml-[-4px]">{chat.unreadCount > 0 ? `(${chat.unreadCount})` : '微信'}</span>
         </button>
-        <span className="text-[17px] font-medium text-[#191919] absolute left-1/2 -translate-x-1/2">
-           {chat.user.name}
-        </span>
-        <button onClick={onUserClick} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60">
-          <MoreHorizontal size={24} strokeWidth={1.5} />
-        </button>
+        <span className="text-[17px] font-medium text-[#191919] absolute left-1/2 -translate-x-1/2">{chat.user.name}</span>
+        <button type="button" onClick={onUserClick} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60"><MoreHorizontal size={24} /></button>
       </header>
 
-      {/* Message List */}
       <div 
-         ref={scrollRef}
-         className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative"
-         onClick={() => { setIsPlusOpen(false); setMsgContextMenu({ ...msgContextMenu, visible: false }); }}
-         onTouchStart={() => setMsgContextMenu({ ...msgContextMenu, visible: false })}
+        ref={scrollRef} 
+        className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative" 
+        onClick={() => { setIsPlusOpen(false); setIsEmojiOpen(false); setMsgContextMenu({ ...msgContextMenu, visible: false }); }}
+        onTouchStart={() => setMsgContextMenu({ ...msgContextMenu, visible: false })}
       >
-        {messages.map((msg: any, idx) => {
+        {messages.map((msg, idx) => {
           const isMe = msg.senderId === currentUserId;
-          const showTime = idx === 0 || (new Date(msg.timestamp).getTime() - new Date(messages[idx - 1].timestamp).getTime() > 5 * 60 * 1000);
-          const isContextActive = msgContextMenu.visible && msgContextMenu.message?.id === msg.id;
-          const bubbleColorHex = isMe ? (isContextActive ? '#89D960' : '#95EC69') : (isContextActive ? '#F2F2F2' : '#FFFFFF');
+          // 安全的日期比较
+          const prevTime = idx > 0 && messages[idx-1] ? new Date(messages[idx - 1].timestamp).getTime() : 0;
+          const currTime = new Date(msg.timestamp).getTime();
+          const showTime = idx === 0 || (currTime - prevTime > 5 * 60 * 1000);
           
-          const isImage = msg.kind === 'image';
-          const isVideo = msg.kind === 'video' || (msg.meta?.fileType && msg.meta.fileType.startsWith('video/'));
-          const isFile = msg.kind === 'SMART_FILE_UI' && !isVideo;
-          const isVoice = msg.kind === 'voice';
-
+          const isContextActive = msgContextMenu.visible && msgContextMenu.message?.id === msg.id;
+          const bubbleColor = isMe ? (isContextActive ? '#89D960' : '#95EC69') : (isContextActive ? '#F2F2F2' : '#FFFFFF');
+          
           return (
             <div key={msg.id || idx} className="mb-4 relative">
-              {showTime && (
-                <div className="flex justify-center mt-6 mb-[18px]">
-                  <span className="text-[12px] text-gray-400/90 bg-gray-200/60 px-2 py-0.5 rounded-[4px]">
-                    {formatMessageTime(msg.timestamp)}
-                  </span>
-                </div>
-              )}
-              
-              <div className={`flex ${isMe ? 'flex-row-reverse' : 'flex-row'} items-start group`}>
+              {showTime && !isNaN(currTime) && <div className="flex justify-center mt-6 mb-[18px]"><span className="text-[12px] text-gray-400 bg-gray-200 px-2 py-0.5 rounded-[4px]">{formatMessageTime(new Date(msg.timestamp))}</span></div>}
+              <div className={`flex ${isMe ? 'flex-row-reverse' : 'flex-row'} items-start`}>
                 <img 
-                  src={isMe ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUserId}` : chat.user.avatar} 
-                  className="w-10 h-10 rounded-[6px] shadow-sm object-cover bg-gray-200 cursor-pointer flex-shrink-0"
-                  onClick={!isMe && onUserClick ? onUserClick : undefined}
-                  alt="Avatar"
+                    src={isMe ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUserId}` : chat.user.avatar} 
+                    className="w-10 h-10 rounded-[6px] bg-gray-200 object-cover flex-shrink-0" 
+                    onClick={!isMe && onUserClick ? onUserClick : undefined}
                 />
-
+                
                 <div 
-                  className={`max-w-[70%] ${isMe ? 'mr-2.5' : 'ml-2.5'} transition-opacity duration-200`}
-                  onTouchStart={(e) => handleMessageTouchStart(e, msg)}
-                  onTouchEnd={handleMessageTouchEnd}
-                  onContextMenu={(e) => e.preventDefault()}
+                    className={`max-w-[70%] ${isMe ? 'mr-2.5' : 'ml-2.5'} transition-opacity duration-200`}
+                    onTouchStart={(e) => handleMessageTouchStart(e, msg)}
+                    onTouchEnd={handleMessageTouchEnd}
+                    onContextMenu={(e) => e.preventDefault()}
                 >
-                   {isImage ? (
-                       <img 
-                          src={msg.meta?.fileId && window.smartCore ? window.smartCore.play(msg.meta.fileId) : msg.txt} 
-                          className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white" 
-                          alt="Image" 
-                       />
-                   ) : isVideo ? (
-                       <VideoMessage 
-                          src={msg.meta?.fileId && window.smartCore ? window.smartCore.play(msg.meta.fileId) : ''}
-                          fileName={msg.meta?.fileName || 'Video'}
-                       />
-                   ) : isFile ? (
-                       <div onClick={() => handleSmartFileDownload(msg)} className="bg-white p-3 rounded-[4px] shadow-sm border border-gray-100 cursor-pointer active:bg-gray-50">
-                           <div className="flex items-center gap-2">
-                               <div className="bg-blue-500 text-white p-2 rounded">📄</div>
-                               <div>
-                                   <div className="text-sm font-medium">{msg.meta?.fileName || '未知文件'}</div>
-                                   <div className="text-xs text-gray-400">{msg.meta?.fileSize ? (msg.meta.fileSize / 1024 / 1024).toFixed(2) : 0} MB</div>
-                               </div>
-                           </div>
+                   {msg.kind === 'image' ? (
+                       <ImageMessage msg={msg} isMe={isMe} onRetry={() => triggerDownload(msg)} />
+                   ) : msg.kind === 'video' ? (
+                       <VideoMessage src={msg.meta?.fileId && window.smartCore ? window.smartCore.play(msg.meta.fileId) : ''} fileName={msg.meta?.fileName || 'Video'} isMe={isMe} />
+                   ) : msg.kind === 'voice' ? (
+                       <VoiceMessage duration={parseInt(msg.txt || '0')} isMe={isMe} isPlaying={playingMessageId === msg.id} onPlay={() => handlePlayVoice(msg)} />
+                   ) : msg.kind === 'SMART_FILE_UI' ? (
+                       <div onClick={() => triggerDownload(msg)} className="bg-white p-3 rounded-[4px] border border-gray-100 flex items-center gap-2 cursor-pointer active:bg-gray-50">
+                           <div className="bg-blue-500 text-white p-2 rounded">📄</div>
+                           <div><div className="text-sm font-medium">{msg.meta?.fileName}</div><div className="text-xs text-gray-400">{(msg.meta?.fileSize || 0) / 1024 / 1024 < 1 ? '<1 MB' : `${((msg.meta?.fileSize || 0) / 1024 / 1024).toFixed(1)} MB`}</div></div>
                        </div>
-                   ) : isVoice ? (
-                      <VoiceMessage duration={parseInt(msg.txt || '0')} isMe={isMe} isPlaying={playingMessageId === msg.id} onPlay={() => handlePlayVoice(msg)} />
                    ) : (
-                      <div className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm select-none min-h-[40px] flex items-center" style={{ backgroundColor: bubbleColorHex }}>
-                         <div className={`absolute top-1/2 -translate-y-1/2 w-0 h-0 border-[6px] border-transparent ${isMe ? 'right-[-6px]' : 'left-[-6px]'}`} style={{ borderLeftColor: isMe ? bubbleColorHex : 'transparent', borderRightColor: !isMe ? bubbleColorHex : 'transparent', borderTopColor: 'transparent', borderBottomColor: 'transparent' }}></div>
+                      <div className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm min-h-[40px] flex items-center" style={{ backgroundColor: bubbleColor }}>
+                         <div className={`absolute top-1/2 -translate-y-1/2 w-0 h-0 border-[6px] border-transparent ${isMe ? 'right-[-6px]' : 'left-[-6px]'}`} style={{ borderLeftColor: isMe ? bubbleColor : 'transparent', borderRightColor: !isMe ? bubbleColor : 'transparent', borderTopColor: 'transparent', borderBottomColor: 'transparent' }}></div>
                          <span className="text-left">{msg.text}</span>
                       </div>
                    )}
@@ -388,9 +430,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           );
         })}
         <div ref={messagesEndRef} />
-
+        
         {msgContextMenu.visible && (
-          <div className="fixed z-[9999] flex flex-col items-center" style={{ top: msgContextMenu.y, left: '50%', transform: 'translateX(-50%)' }} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+          <div className="fixed z-[9999] flex flex-col items-center" style={{ top: msgContextMenu.y, left: '50%', transform: 'translateX(-50%)' }} onClick={(e) => e.stopPropagation()}>
              <div className="bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[300px]">
                 <div className="grid grid-cols-5 gap-y-3 gap-x-1">
                    <ContextMenuItem icon={<Copy />} label="复制" />
@@ -408,48 +450,47 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         )}
       </div>
 
-      <div className={`bg-[#F7F7F7] border-t border-gray-300/50 transition-all duration-200 z-30 ${isPlusOpen ? 'pb-0' : 'pb-safe-bottom'}`}>
+      <div className={`bg-[#F7F7F7] border-t border-gray-300/50 transition-all duration-200 z-30 ${isPlusOpen || isEmojiOpen ? 'pb-0' : 'pb-safe-bottom'}`}>
         <div className="flex items-end px-3 py-2 gap-2 min-h-[56px]">
-           <button onClick={() => setIsVoiceMode(!isVoiceMode)} className="mb-2 p-1 text-[#191919] active:opacity-60">
-             {isVoiceMode ? <Keyboard size={28} strokeWidth={1.5} /> : <Mic size={28} strokeWidth={1.5} />}
-           </button>
+           <button type="button" onClick={() => setIsVoiceMode(!isVoiceMode)} className="mb-2 p-1 text-[#191919] active:opacity-60">{isVoiceMode ? <Keyboard size={28} /> : <Mic size={28} />}</button>
            <div className="flex-1 mb-1.5">
              {isVoiceMode ? (
-               <button className={`w-full h-[40px] rounded-[6px] font-medium text-[16px] transition-colors select-none ${voiceRecording ? 'bg-[#DEDEDE] text-[#191919]' : 'bg-white text-[#191919] active:bg-[#DEDEDE]'}`} onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording}>{voiceRecording ? '松开 结束' : '按住 说话'}</button>
+               <button type="button" className={`w-full h-[40px] rounded-[6px] font-medium text-[16px] select-none ${voiceRecording ? 'bg-[#DEDEDE]' : 'bg-white active:bg-[#DEDEDE]'}`} onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording}>{voiceRecording ? '松开 结束' : '按住 说话'}</button>
              ) : (
-               <textarea value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyPress} rows={1} className="w-full bg-white rounded-[6px] px-3 py-2.5 text-[16px] text-[#191919] outline-none resize-none overflow-hidden max-h-[120px] shadow-sm caret-[#07C160]" style={{ minHeight: '40px' }} />
+               <textarea 
+                  value={inputValue} 
+                  onChange={(e) => setInputValue(e.target.value)} 
+                  onKeyDown={handleKeyPress} 
+                  rows={1} 
+                  className="w-full bg-white rounded-[6px] px-3 py-2.5 text-[16px] outline-none resize-none max-h-[120px] shadow-sm" 
+                  style={{ minHeight: '40px' }} 
+               />
              )}
            </div>
-           <button className="mb-2 p-1 text-[#191919] active:opacity-60"><Smile size={28} strokeWidth={1.5} /></button>
+           <button type="button" onClick={toggleEmojiMenu} className="mb-2 p-1 text-[#191919] active:opacity-60"><Smile size={28} /></button>
            {inputValue.trim() ? (
-              <button onClick={handleSendText} className="mb-2 bg-[#07C160] text-white px-3 py-1.5 rounded-[4px] text-[14px] font-medium active:bg-[#06AD56]">发送</button>
+              <button type="button" onClick={handleSendText} className="mb-2 bg-[#07C160] text-white px-3 py-1.5 rounded-[4px] text-[14px] font-medium active:bg-[#06AD56]">发送</button>
            ) : (
-              <button onClick={togglePlusMenu} className="mb-2 p-1 text-[#191919] active:opacity-60 transition-transform duration-200" style={{ transform: isPlusOpen ? 'rotate(45deg)' : 'rotate(0)' }}><PlusCircle size={28} strokeWidth={1.5} /></button>
+              <button type="button" onClick={togglePlusMenu} className="mb-2 p-1 text-[#191919] active:opacity-60 transition-transform duration-200" style={{ transform: isPlusOpen ? 'rotate(45deg)' : 'rotate(0)' }}><PlusCircle size={28} /></button>
            )}
         </div>
+
+        {isEmojiOpen && (
+            <div className="h-[240px] bg-[#F7F7F7] border-t border-gray-300/50 p-4 pb-safe-bottom overflow-y-auto grid grid-cols-8 gap-4 content-start">
+                {EMOJIS.map(emo => <button type="button" key={emo} onClick={() => handleEmojiClick(emo)} className="text-2xl hover:bg-gray-200 rounded p-1">{emo}</button>)}
+            </div>
+        )}
+
         {isPlusOpen && (
-           <div className="h-[240px] bg-[#F7F7F7] border-t border-gray-300/50 p-6 pb-safe-bottom grid grid-cols-4 gap-y-6">
+           <div className="h-[240px] bg-[#F7F7F7] border-t border-gray-300/50 p-6 pb-safe-bottom grid grid-cols-4 gap-y-6 content-start">
               {menuItems.map((item, idx) => (
-                 <div key={idx} className="flex flex-col items-center gap-2 cursor-pointer active:opacity-60" onClick={item.action ? item.action : () => onShowToast("功能暂未开放")}>
-                    <div className="w-[60px] h-[60px] bg-white rounded-[16px] flex items-center justify-center text-[#5C5C5C] shadow-sm border border-gray-100">{React.cloneElement(item.icon as React.ReactElement<any>, { strokeWidth: 1.2, size: 28 })}</div><span className="text-[12px] text-gray-500">{item.label}</span>
+                 <div key={idx} className="flex flex-col items-center gap-2 cursor-pointer active:opacity-60" onClick={item.action}>
+                    <div className="w-[60px] h-[60px] bg-white rounded-[16px] flex items-center justify-center text-[#5C5C5C] shadow-sm border border-gray-100">{item.icon}</div><span className="text-[12px] text-gray-500">{item.label}</span>
                  </div>
               ))}
            </div>
         )}
       </div>
-
-       {showCallMenu && (
-        <div className="fixed inset-0 z-[100] flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40 transition-opacity" onClick={() => setShowCallMenu(false)}></div>
-          <div className="relative z-[110] bg-[#F7F7F7] rounded-t-[12px] overflow-hidden safe-bottom slide-in-from-bottom">
-             <div className="bg-white flex flex-col">
-               <button onClick={() => startCall('video')} className="w-full py-3.5 text-[17px] text-[#191919] font-normal active:bg-[#F2F2F2] border-b border-gray-100/50 flex items-center justify-center">视频通话</button>
-               <button onClick={() => startCall('voice')} className="w-full py-3.5 text-[17px] text-[#191919] font-normal active:bg-[#F2F2F2] flex items-center justify-center">语音通话</button>
-             </div>
-             <div className="mt-2 bg-white"><button className="w-full py-3.5 text-[17px] text-[#191919] font-normal active:bg-[#F2F2F2]" onClick={() => setShowCallMenu(false)}>取消</button></div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
