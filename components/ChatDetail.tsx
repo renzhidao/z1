@@ -15,8 +15,9 @@ interface ChatDetailProps {
 // --- 常用 Emoji 列表 ---
 const EMOJIS = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😯","😪","😫","😴","😌","😛","😜","😝","🤤","😒","😓","😔","😕","🙃","🤑","😲","☹️","🙁","😖","😞","😟","😤","😢","😭","😦","😧","😨","😩","🤯","😬","😰","😱","😳","🤪","😵","😡","😠","🤬","😷","🤒","🤕","🤢","🤮","","😇","🤠","🤡","🤥","🤫","🤭","🧐","🤓","😈","👿"];
 
-// --- 辅助函数：时间格式化 ---
+// --- 辅助函数：时间格式化 (增加安全性) ---
 const formatMessageTime = (date: Date) => {
+  if (isNaN(date.getTime())) return ""; // 防止无效日期导致渲染错误
   const now = new Date();
   const isToday = now.toDateString() === date.toDateString();
   const yesterday = new Date();
@@ -57,14 +58,20 @@ const VoiceMessage: React.FC<{ duration: number, isMe: boolean, isPlaying: boole
 // --- 组件：视频消息 ---
 const VideoMessage: React.FC<{ src: string, fileName: string, isMe: boolean }> = ({ src, fileName, isMe }) => (
     <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black group cursor-pointer">
-        <video src={src} controls playsInline className="w-full max-h-[300px] bg-black" onError={(e) => { (e.target as HTMLVideoElement).poster = "https://placehold.co/400x300/000000/FFFFFF?text=点击加载视频"; }} />
+        <video 
+            src={src} 
+            controls 
+            playsInline
+            className="w-full max-h-[300px] bg-black"
+            onError={(e) => { (e.target as HTMLVideoElement).poster = "https://placehold.co/400x300/000000/FFFFFF?text=点击加载视频"; }}
+        />
         {!isMe && <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">视频</div>}
     </div>
 );
 
 // --- 组件：图片消息（修复自动加载）---
 const ImageMessage: React.FC<{ msg: Message, isMe: boolean }> = ({ msg, isMe }) => {
-    // 1. 尝试获取 URL (优先 blobUrl，其次核心解析的本地路径，最后是文本内容)
+    // 1. 尝试获取 URL (优先 blobUrl 预览，其次核心解析的本地路径，最后是文本内容)
     const getSrc = () => {
         if (msg.meta?.blobUrl) return msg.meta.blobUrl;
         if (msg.meta?.fileId && window.smartCore) return window.smartCore.play(msg.meta.fileId);
@@ -80,13 +87,13 @@ const ImageMessage: React.FC<{ msg: Message, isMe: boolean }> = ({ msg, isMe }) 
             if (currentSrc) {
                 setSrc(currentSrc);
             } else {
-                // 关键点：如果 play 返回空，说明未下载，立即触发下载
+                // 如果 play 返回空，说明未下载，立即触发下载
                 window.smartCore.download(msg.meta.fileId, msg.meta.fileName);
             }
         }
     }, [msg]);
 
-    // 处理图片加载错误：如果是网络图加载失败，可能是还没下载完，重新触发一次下载
+    // 处理加载错误：重新触发下载
     const handleError = () => {
         if (msg.meta?.fileId && window.smartCore) {
              window.smartCore.download(msg.meta.fileId, msg.meta.fileName);
@@ -162,7 +169,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         });
     }
 
-    // 2. 监听实时消息（修复：三条消息问题）
+    // 2. 监听实时消息
     const handler = (e: CustomEvent) => {
         const { type, data } = e.detail;
         if (type === 'msg' && data) {
@@ -187,8 +194,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                 };
 
                 setMessages(prev => {
-                    // 强力去重：如果ID已存在，则不添加（或者替换旧的）
-                    // 使用 Map 来确保 ID 唯一性，解决消息重复问题
+                    // 使用 Map 去重，防止消息重复
                     const msgMap = new Map(prev.map(m => [m.id, m]));
                     msgMap.set(newMsg.id, newMsg); 
                     return Array.from(msgMap.values()).sort((a: any,b: any) => a.ts - b.ts);
@@ -268,8 +274,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                msg.meta = { ...msg.meta, fileType: file.type, blobUrl }; // 注入 blobUrl 供预览
           }
           window.protocol.sendMsg(null, kind as any, { ...msg.meta, fileObj: file });
-          // 注意：此处不再手动 setMessages，完全依赖 core-ui-update 事件来添加消息，
-          // 这样可以避免“发送一条变三条”的重复问题。
+          // 注意：此处不再手动 setMessages，完全依赖 core-ui-update
       }
       setIsPlusOpen(false);
   };
@@ -416,7 +421,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           <div className="fixed z-[9999] flex flex-col items-center" style={{ top: msgContextMenu.y, left: '50%', transform: 'translateX(-50%)' }} onClick={(e) => e.stopPropagation()}>
              <div className="bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[300px]">
                 <div className="grid grid-cols-5 gap-y-3 gap-x-1">
-                   {/* 关键修复：绑定 handleCopyMessage */}
+                   {/* 长按复制 */}
                    <ContextMenuItem icon={<Copy />} label="复制" onClick={handleCopyMessage} />
                    <ContextMenuItem icon={<Share />} label="转发" />
                    <ContextMenuItem icon={<FolderHeart />} label="收藏" />
@@ -434,6 +439,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
 
       <div className={`bg-[#F7F7F7] border-t border-gray-300/50 transition-all duration-200 z-30 ${isPlusOpen || isEmojiOpen ? 'pb-0' : 'pb-safe-bottom'}`}>
         <div className="flex items-end px-3 py-2 gap-2 min-h-[56px]">
+           {/* 关键修复：所有按钮添加 type="button" 防止提交刷新 */}
            <button type="button" onClick={() => setIsVoiceMode(!isVoiceMode)} className="mb-2 p-1 text-[#191919] active:opacity-60">{isVoiceMode ? <Keyboard size={28} /> : <Mic size={28} />}</button>
            <div className="flex-1 mb-1.5">
              {isVoiceMode ? (
