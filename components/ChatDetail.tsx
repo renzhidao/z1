@@ -585,5 +585,3 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     </div>
   );
 };
-
-export default ChatDetail;
