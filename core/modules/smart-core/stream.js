@@ -10,8 +10,11 @@ export class StreamManager {
 
   handleStreamOpen(data, source) {
     const { requestId, fileId, range } = data || {};
-
     if (!requestId || !fileId) return;
+
+    try {
+      log(`🧩 STREAM_OPEN req=${requestId} fileId=${fileId} range=${range || ''}`);
+    } catch (_) {}
 
     if (window.virtualFiles && window.virtualFiles.has(fileId)) {
       this.serveLocalBlob(fileId, requestId, range, source);
@@ -20,12 +23,14 @@ export class StreamManager {
 
     let task = this.core.tasks.activeTasks.get(fileId);
     if (!task) {
+      try { log(`🧩 STREAM_OPEN: no task, startDownloadTask(fileId=${fileId})`); } catch (_) {}
       this.core.tasks.startDownloadTask(fileId);
       task = this.core.tasks.activeTasks.get(fileId);
     }
 
     if (!task) {
       try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'Task Start Failed' }); } catch (_) {}
+      try { log(`🧩 STREAM_OPEN FAIL req=${requestId} fileId=${fileId} -> Task Start Failed`); } catch (_) {}
       return;
     }
 
@@ -73,7 +78,7 @@ export class StreamManager {
       });
     } catch (_) {}
 
-    task.swRequests.set(requestId, { start, end, current: start, source });
+    task.swRequests.set(requestId, { start, end, current: start, source, _waitLogged: false });
 
     const reqChunkIndex = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
 
@@ -101,6 +106,8 @@ export class StreamManager {
     const { requestId } = data || {};
     if (!requestId) return;
 
+    try { log(`🧩 STREAM_CANCEL req=${requestId}`); } catch (_) {}
+
     this.core.tasks.activeTasks.forEach(t => {
       t.swRequests.delete(requestId);
       if (t.completed) this.core.tasks.cleanupTask(t.fileId);
@@ -119,6 +126,8 @@ export class StreamManager {
         const chunkData = task.parts.get(chunkOffset);
 
         if (chunkData) {
+          req._waitLogged = false;
+
           const available = chunkData.byteLength - insideOffset;
           const needed = req.end - req.current + 1;
           const sendLen = Math.min(available, needed);
@@ -144,7 +153,10 @@ export class StreamManager {
             break;
           }
         } else {
-          // log(`SW ⏳ WAIT chunk @${chunkOffset} (req.current=${req.current})`);
+          if (!req._waitLogged) {
+            req._waitLogged = true;
+            try { log(`🧩 SW WAIT req=${reqId} needChunk@${chunkOffset} cur=${req.current}`); } catch (_) {}
+          }
           break;
         }
       }
@@ -154,6 +166,8 @@ export class StreamManager {
   serveLocalBlob(fileId, requestId, range, source) {
     const blob = window.virtualFiles.get(fileId);
     if (!blob) return;
+
+    try { log(`🧩 serveLocalBlob req=${requestId} fileId=${fileId} size=${blob.size} range=${range || ''}`); } catch (_) {}
 
     let start = 0;
     let end = blob.size - 1;
@@ -197,6 +211,10 @@ export class StreamManager {
     } catch (_) {}
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      try { log(`🧩 serveLocalBlob FileReader ERROR req=${requestId} err=${reader.error}`); } catch (_) {}
+      try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'LocalBlob Read Failed' }); } catch (_) {}
+    };
     reader.onload = () => {
       const buffer = reader.result;
       try { source.postMessage({ type: 'STREAM_DATA', requestId, chunk: buffer }, [buffer]); } catch (_) {}
