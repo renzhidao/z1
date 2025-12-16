@@ -1,6 +1,6 @@
 import { CHAT } from './constants.js';
 import { log, fmtMB } from './smart-core/logger.js';
-import { bindMoreVideoLogs, guessMime } from './smart-core/utils.js';
+import { bindMoreVideoLogs } from './smart-core/utils.js';
 import { MetaManager } from './smart-core/meta.js';
 import { TaskManager } from './smart-core/task.js';
 import { StreamManager } from './smart-core/stream.js';
@@ -11,16 +11,16 @@ import { CHUNK_SIZE } from './smart-core/config.js';
 
 class SmartCore {
   constructor() {
-    this.mode = null; // FIXED: Initialize as null to ensure setMode works on init
+    this.mode = null; // 初始化为 null，确保 setMode 生效
 
-    // shared state maps
+    // 共享文件表（本地 File / 远端合并 Blob 都放这里）
     window.virtualFiles = window.virtualFiles || new Map();
 
     this.meta = new MetaManager(() => window.state);
     this.tasks = new TaskManager(this);
     this.stream = new StreamManager(this);
 
-    // expose maps to keep legacy code working
+    // 兼容旧代码的全局别名
     window.smartMetaCache = this.tasks.smartMetaCache;
     window.remoteFiles = this.tasks.remoteFiles;
     window.activeTasks = this.tasks.activeTasks;
@@ -29,13 +29,13 @@ class SmartCore {
     this._videos = {};
     this.activePlayer = null;
 
-    // 图片兜底监控
+    // 预留图片兜底监控结构（目前未强依赖）
     this._imgWatch = this._imgWatch || new Map();
 
-    // legacy aliases
+    // 二进制入口别名（兼容旧的 window.smartCore.handleBinary）
     this.handleBinary = (data, fromId) => this.onBinary(data, fromId);
 
-    // hook bookkeeping
+    // hook 状态
     this._hooksInstalled = false;
     this._origSendMsg = null;
     this._origProcIncoming = null;
@@ -44,7 +44,7 @@ class SmartCore {
 
   setMode(mode) {
     if (mode !== 'hook' && mode !== 'api') return;
-    if (this.mode === mode && this._hooksInstalled) return; // FIXED: Logic check
+    if (this.mode === mode && this._hooksInstalled) return;
     this.mode = mode;
 
     if (mode === 'hook') this.installHooks();
@@ -64,14 +64,16 @@ class SmartCore {
     return id;
   }
 
-  // one-call API for sending a file: register + local show + reliable meta
+  // 一次性 API：注册 + 本地显示 + 可靠 SMART_META
   sendFile(file, targetId = null, { kind = 'SMART_FILE_UI', txt = null, showLocal = true } = {}) {
     const fileId = this.registerLocalFile(file);
     const metaData = { fileId, fileName: file.name, fileSize: file.size, fileType: file.type };
 
-    const target = targetId || ((window.state && window.state.activeChat && window.state.activeChat !== CHAT.PUBLIC_ID)
-      ? window.state.activeChat
-      : CHAT.PUBLIC_ID);
+    const target = targetId || (
+      (window.state && window.state.activeChat && window.state.activeChat !== CHAT.PUBLIC_ID)
+        ? window.state.activeChat
+        : CHAT.PUBLIC_ID
+    );
 
     const msg = {
       t: 'SMART_META',
@@ -80,27 +82,27 @@ class SmartCore {
       senderId: window.state && window.state.myId,
       n: window.state && window.state.myName,
       kind,
-      // 修复：如果是 voice，保留 txt (时长)，否则用文件名
+      // voice 保留 txt（时长），其它默认用文件名
       txt: txt || (kind === 'voice' ? null : `[文件] ${file.name}`),
       meta: metaData,
       target
     };
 
     if (showLocal) {
-      // let protocol/ui render (if available)
       try {
         if (window.protocol && typeof window.protocol.processIncoming === 'function') {
           window.protocol.processIncoming(msg);
         } else if (window.ui && typeof window.ui.appendMsg === 'function') {
           window.ui.appendMsg(msg);
         }
-      } catch (_) { }
+      } catch (_) {}
     }
 
     this.meta.sendReliable(msg);
     return { fileId, msg };
   }
 
+  // 处理 SMART_* 文本包
   onPacket(pkt, fromPeerId) {
     if (!pkt || !pkt.t) return false;
 
@@ -108,7 +110,9 @@ class SmartCore {
       const seen = window.state && window.state.seenMsgs && window.state.seenMsgs.has(pkt.id);
 
       if (!seen) {
-        try { window.state && window.state.seenMsgs && window.state.seenMsgs.add(pkt.id); } catch (_) { }
+        try {
+          window.state && window.state.seenMsgs && window.state.seenMsgs.add(pkt.id);
+        } catch (_) {}
 
         log(`📥 Meta: ${pkt.meta && pkt.meta.fileName} (${fmtMB((pkt.meta && pkt.meta.fileSize) || 0)}) from=${pkt.senderId}`);
 
@@ -118,14 +122,16 @@ class SmartCore {
         if (!this.tasks.remoteFiles.has(meta.fileId)) this.tasks.remoteFiles.set(meta.fileId, new Set());
         this.tasks.remoteFiles.get(meta.fileId).add(pkt.senderId);
 
-        try { if (window.ui && window.ui.appendMsg) window.ui.appendMsg(pkt); } catch (_) { }
+        try {
+          if (window.ui && window.ui.appendMsg) window.ui.appendMsg(pkt);
+        } catch (_) {}
       }
 
-      // ACK
+      // ACK 回执
       const pid = fromPeerId || pkt.senderId;
       const c = window.state && window.state.conns && window.state.conns[pid];
       if (c && c.open) {
-        try { c.send({ t: 'SMART_META_ACK', refId: pkt.id, from: window.state.myId }); } catch (_) { }
+        try { c.send({ t: 'SMART_META_ACK', refId: pkt.id, from: window.state.myId }); } catch (_) {}
       }
       return true;
     }
@@ -143,10 +149,12 @@ class SmartCore {
     return false;
   }
 
+  // 处理二进制分片
   onBinary(data, fromPeerId) {
     this.tasks.handleBinaryData(data, fromPeerId);
   }
 
+  // 来自 SW 的 STREAM_* 消息
   onSwMessage(event) {
     const data = event && event.data;
     if (!data) return;
@@ -156,6 +164,7 @@ class SmartCore {
     if (data.type === 'STREAM_CANCEL') this.stream.handleStreamCancel(data);
   }
 
+  // 统一播放入口：返回可直接赋给 <img>/<video>/<audio> 的 src
   play(fileId, name = '') {
     const meta = this.tasks.smartMetaCache.get(fileId) || {};
     const fileName = name || meta.fileName || '';
@@ -169,41 +178,17 @@ class SmartCore {
       return url;
     }
 
-    const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
+    const hasSW = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
     const isVideo = /\.(mp4|mov|m4v)$/i.test(fileName) || /video\//.test(fileType);
-    const isImage = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(fileName) || /image\//.test(fileType);
 
-    if (isImage) {
-      try { this.tasks.startDownloadTask(fileId); } catch (_) {}
-      try {
-        const conns = window.state && window.state.conns;
-        if (meta.senderId && window.p2p && conns && (!conns[meta.senderId] || !conns[meta.senderId].open)) {
-          window.p2p.connectTo(meta.senderId);
-        }
-      } catch (_) {}
-      try { this.ensureImageWatcher(fileId); } catch (_) {}
-    }
-    const isImage = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(fileName) || /image\//.test(fileType);
-
-    // 2. 远程文件：仅做“主动连接”尝试
-    // [关键修复] 不在 play() 里强行 startDownloadTask；下载应由 SW 的 STREAM_OPEN 触发（更稳，避免 SW 未 ready / 连接抖动导致卡死）
-    const conns = window.state && window.state.conns;
-    if (meta.senderId && window.p2p && conns && (!conns[meta.senderId] || !conns[meta.senderId].open)) {
-      log(` play() 触发主动连接 -> ${meta.senderId}`);
-      try {
-        window.p2p.connectTo(meta.senderId);
-      } catch (_) { }
-    }
-
-    // 3. MSE 降级模式 (针对无 SW 环境或特定视频)
+    // 2. 无 SW 环境下的视频：走 MSE + MP4Box 降级路径（必须主动拉取）
     if (!hasSW && isVideo) {
       log(`🎥 播放路径 = MSE + MP4Box (无SW降级) | ${fileName}`);
 
-      // 无 SW 时必须由任务拉取数据
-      try { this.tasks.startDownloadTask(fileId); } catch (_) { }
+      try { this.tasks.startDownloadTask(fileId); } catch (_) {}
 
       if (this.activePlayer) {
-        try { this.activePlayer.destroy(); } catch (_) { }
+        try { this.activePlayer.destroy(); } catch (_) {}
       }
 
       this.activePlayer = new P2PVideoPlayer(fileId);
@@ -212,7 +197,7 @@ class SmartCore {
       if (task) {
         const offsets = Array.from(task.parts.keys()).sort((a, b) => a - b);
         for (const off of offsets) {
-          try { this.activePlayer.appendChunk(task.parts.get(off), off); } catch (_) { }
+          try { this.activePlayer.appendChunk(task.parts.get(off), off); } catch (_) {}
         }
       }
 
@@ -225,10 +210,11 @@ class SmartCore {
       return this.activePlayer.getUrl();
     }
 
-    // 4. 标准 SW 直链（SW 会触发 STREAM_OPEN -> 才启动下载/调度）
-    // log(` 播放路径 = SW直链 | ${fileName}`);
-    const vUrl = `.../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
+    // 3. 标准路径：SW 虚拟直链，由 STREAM_OPEN 触发下载/调度
+    const safeName = fileName || 'file';
+    const vUrl = `./virtual/file/${fileId}/${encodeURIComponent(safeName)}`;
 
+    // 视频：附加日志/seek 钩子
     if (isVideo) {
       setTimeout(() => {
         const v = document.querySelector && document.querySelector('video');
@@ -236,13 +222,24 @@ class SmartCore {
       }, 300);
     }
 
+    // 4. 远端文件：尝试主动建立到 sender 的连接，提高首包命中率
+    try {
+      const conns = window.state && window.state.conns;
+      if (meta.senderId && window.p2p && conns && (!conns[meta.senderId] || !conns[meta.senderId].open)) {
+        log(` play() 触发主动连接 -> ${meta.senderId}`);
+        window.p2p.connectTo(meta.senderId);
+      }
+    } catch (_) {}
+
     return vUrl;
   }
 
+  // 下载：本地 Blob / 远程 SW 直链
   download(fileId, name = '') {
     const meta = this.tasks.smartMetaCache.get(fileId) || {};
     const fileName = name || meta.fileName || 'file';
 
+    // 本地：直接保存
     if (window.virtualFiles.has(fileId)) {
       const data = window.virtualFiles.get(fileId);
       if (window.ui && window.ui.downloadBlob) {
@@ -258,8 +255,8 @@ class SmartCore {
       return;
     }
 
-    // remote: use SW virtual URL; do NOT force startDownloadTask here (由 SW 的 STREAM_OPEN 触发更稳)
-    const url = `.../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
+    // 远端：统一走 SW 虚拟直链（STREAM_OPEN -> 启动任务），不在这里强行 startDownloadTask
+    const url = `./virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
@@ -277,8 +274,9 @@ class SmartCore {
       video._p2pBound = true;
       this._videos[fileId] = video;
 
+      // 解决 0 秒处非关键帧黑屏
       video.addEventListener('loadedmetadata', () => {
-        try { if (video.currentTime === 0) video.currentTime = 0.05; } catch (_) { }
+        try { if (video.currentTime === 0) video.currentTime = 0.05; } catch (_) {}
       });
 
       video.addEventListener('seeking', () => {
@@ -287,7 +285,7 @@ class SmartCore {
       });
 
       bindMoreVideoLogs(video, fileId);
-    } catch (_) { }
+    } catch (_) {}
   }
 
   autoBindVideo(fileId) {
@@ -324,7 +322,7 @@ class SmartCore {
   }
 
   onPeerConnect(pid) {
-    // reserved for future optimization
+    // 预留：未来可在这里做“新 peer 上线时补发 SMART_META”之类优化
   }
 
   // -----------------
@@ -335,35 +333,34 @@ class SmartCore {
     if (this._hooksInstalled) return;
     this._hooksInstalled = true;
 
-    // SW listener (removable)
+    // SW listener
     if (navigator.serviceWorker) {
       this._swListener = (e) => this.onSwMessage(e);
       navigator.serviceWorker.addEventListener('message', this._swListener);
     }
 
-    // protocol hook
+    // 协议 hook
     if (window.protocol) {
       const self = this;
       this._origSendMsg = window.protocol.sendMsg;
       this._origProcIncoming = window.protocol.processIncoming;
 
       window.protocol.sendMsg = function (txt, kind, meta) {
-        // [修复] 增加对 'voice' 的拦截，并确保 'txt' (时长) 能透传
+        // 文件 / 图片 / 语音：走 SmartCore.sendFile
         if ((kind === CHAT.KIND_FILE || kind === CHAT.KIND_IMAGE || kind === 'voice') && meta && meta.fileObj) {
           const file = meta.fileObj;
           const target = (window.state && window.state.activeChat && window.state.activeChat !== CHAT.PUBLIC_ID)
             ? window.state.activeChat
             : CHAT.PUBLIC_ID;
 
-          // [修复] 透传 kind 和 txt 参数
           const { msg } = self.sendFile(file, target, {
             showLocal: false,
             kind: kind,
-            txt: txt // 语音时长/文本描述会在这里透传
+            txt: txt   // voice 时长/描述透传
           });
 
           // 本地立即显示（复用原流程）
-          try { window.protocol.processIncoming(msg); } catch (_) { }
+          try { window.protocol.processIncoming(msg); } catch (_) {}
 
           return;
         }
@@ -371,7 +368,7 @@ class SmartCore {
       };
 
       window.protocol.processIncoming = function (pkt, fromPeerId) {
-        // handle SMART_* before protocol does id checks
+        // 先让 SmartCore 处理 SMART_*，再走原有逻辑
         if (pkt && pkt.t && String(pkt.t).startsWith('SMART_')) {
           if (self.onPacket(pkt, fromPeerId)) return;
         }
@@ -384,15 +381,15 @@ class SmartCore {
     if (!this._hooksInstalled) return;
     this._hooksInstalled = false;
 
-    // restore protocol
+    // 恢复 protocol
     if (window.protocol && this._origSendMsg) {
       window.protocol.sendMsg = this._origSendMsg;
       window.protocol.processIncoming = this._origProcIncoming;
     }
 
-    // remove SW listener
+    // 移除 SW 监听
     if (navigator.serviceWorker && this._swListener) {
-      try { navigator.serviceWorker.removeEventListener('message', this._swListener); } catch (_) { }
+      try { navigator.serviceWorker.removeEventListener('message', this._swListener); } catch (_) {}
       this._swListener = null;
     }
   }
