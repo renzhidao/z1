@@ -28,7 +28,7 @@ export function useCoreBridge() {
     // Public Channel (Always First)
     chatList.push({
       id: 'all',
-      user: { id: 'all', name: '公共频道 · v2025-12-16-fix7', avatar: '' }, 
+      user: { id: 'all', name: '公共频道 · v2025-12-16-fix9', avatar: '' }, 
       lastMessage: '[公共广播]',
       timestamp: '',
       unreadCount: unread['all'] || 0,

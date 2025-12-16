@@ -110,6 +110,17 @@ export class StreamManager {
       }
     } catch (_) {}
 
+    // 图片：强制将调度对齐至当前 Range 起点，避免被其它预取挤占
+    try {
+      if (task.isImage) {
+        log(`🖼️ SW Img Align -> ${reqChunkIndex}`);
+        task.nextOffset = reqChunkIndex;
+        // 保留近端优先区间
+        const maxKeep = Math.max(PREFETCH_AHEAD / CHUNK_SIZE, 32);
+        task.wantQueue = task.wantQueue.filter(off => (off >= reqChunkIndex && off < reqChunkIndex + PREFETCH_AHEAD)).slice(0, maxKeep);
+      }
+    } catch (_) {}
+
     this.processSwQueue(task);
     this.core.tasks.requestNextChunk(task);
   }

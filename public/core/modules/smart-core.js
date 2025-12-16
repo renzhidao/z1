@@ -29,6 +29,9 @@ class SmartCore {
     this._videos = {};
     this.activePlayer = null;
 
+    // 图片兜底监控
+    this._imgWatch = this._imgWatch || new Map();
+
     // legacy aliases
     this.handleBinary = (data, fromId) => this.onBinary(data, fromId);
 
@@ -168,6 +171,19 @@ class SmartCore {
 
     const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
     const isVideo = /\.(mp4|mov|m4v)$/i.test(fileName) || /video\//.test(fileType);
+    const isImage = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(fileName) || /image\//.test(fileType);
+
+    if (isImage) {
+      try { this.tasks.startDownloadTask(fileId); } catch (_) {}
+      try {
+        const conns = window.state && window.state.conns;
+        if (meta.senderId && window.p2p && conns && (!conns[meta.senderId] || !conns[meta.senderId].open)) {
+          window.p2p.connectTo(meta.senderId);
+        }
+      } catch (_) {}
+      try { this.ensureImageWatcher(fileId); } catch (_) {}
+    }
+    const isImage = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(fileName) || /image\//.test(fileType);
 
     // 2. 远程文件：仅做“主动连接”尝试
     // [关键修复] 不在 play() 里强行 startDownloadTask；下载应由 SW 的 STREAM_OPEN 触发（更稳，避免 SW 未 ready / 连接抖动导致卡死）
@@ -211,7 +227,7 @@ class SmartCore {
 
     // 4. 标准 SW 直链（SW 会触发 STREAM_OPEN -> 才启动下载/调度）
     // log(` 播放路径 = SW直链 | ${fileName}`);
-    const vUrl = new URL(`./virtual/file/${fileId}/${encodeURIComponent(fileName)}`, window.location.href).pathname;
+    const vUrl = `../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
 
     if (isVideo) {
       setTimeout(() => {
@@ -243,7 +259,7 @@ class SmartCore {
     }
 
     // remote: use SW virtual URL; do NOT force startDownloadTask here (由 SW 的 STREAM_OPEN 触发更稳)
-    const url = new URL(`./virtual/file/${fileId}/${encodeURIComponent(fileName)}`, window.location.href).pathname;
+    const url = `../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;

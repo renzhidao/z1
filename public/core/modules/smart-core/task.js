@@ -37,6 +37,7 @@ export class TaskManager {
       size: meta.fileSize,
       fileType: fixedType,
       isVideo: /\.(mp4|mov|m4v)$/i.test((meta.fileName || '')) || /^video\//.test((fixedType || '')) || /mp4|quicktime/.test((fixedType || '')),
+      isImage: /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test((meta.fileName || '')) || /^image\//.test((fixedType || '')),
 
       parts: new Map(),
       swRequests: new Map(),
@@ -53,7 +54,8 @@ export class TaskManager {
       inflight: new Set(),
       inflightTimestamps: new Map(),
 
-      completed: false
+      completed: false,
+      lastRecvTs: Date.now()
     };
 
     // Prefer sender as primary peer even if conn not created yet
@@ -77,7 +79,7 @@ export class TaskManager {
     if (!task.wantQueue.includes(0)) task.wantQueue.unshift(0);
 
     // [稳定性修复] 视频/流播放：先拉取前几块，避免只拿到 off=0 后被尾部探测挤占导致卡住
-    const headPrefetchCount = Math.max(4, PARALLEL * 2);
+    const headPrefetchCount = task.isImage ? Math.max(6, PARALLEL * 3) : Math.max(4, PARALLEL * 2);
     for (let i = 1; i <= headPrefetchCount; i++) {
       const off = i * CHUNK_SIZE;
       if (off < task.size && !task.wantQueue.includes(off)) task.wantQueue.push(off);
@@ -98,7 +100,7 @@ export class TaskManager {
   requestNextChunk(task) {
     if (task.completed) return;
 
-    const desired = PARALLEL;
+    const desired = task.isImage ? Math.max(PARALLEL, 4) : PARALLEL;
     // SW prefetch (高优先级：即使 wantQueue 已很长，也要把当前播放/下载所需块顶到最前，避免“只拿到 off=0 就卡住”)
     if (task.swRequests && task.swRequests.size > 0) {
       try {
@@ -274,6 +276,7 @@ export class TaskManager {
         task.parts.set(off, safeBody);
         log(`RECV ← off=${off} size=${safeBody.byteLength}`);
         statBump('recv');
+        try { task.lastRecvTs = Date.now(); } catch (_) {}
       }
 
       // feed SW
@@ -294,6 +297,20 @@ export class TaskManager {
       } catch (_) {}
 
       // feed MSE
+      if (task.isImage && off === 0 && !task.completed) {
+        try {
+          for (let i = 8; i >= 1; i--) {
+            const nOff = i * CHUNK_SIZE;
+            if (nOff < task.size && !task.parts.has(nOff) && !task.inflight.has(nOff)) {
+              const idx = task.wantQueue.indexOf(nOff);
+              if (idx >= 0) task.wantQueue.splice(idx, 1);
+              task.wantQueue.unshift(nOff);
+            }
+          }
+          this.dispatchRequests(task);
+        } catch (_) {}
+      }
+
       if (this.core.activePlayer && this.core.activePlayer.fileId === fid) {
         try { this.core.activePlayer.appendChunk(safeBody, off); } catch (_) {}
       }
