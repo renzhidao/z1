@@ -91,7 +91,7 @@ class SmartCore {
         } else if (window.ui && typeof window.ui.appendMsg === 'function') {
           window.ui.appendMsg(msg);
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     this.meta.sendReliable(msg);
@@ -105,7 +105,7 @@ class SmartCore {
       const seen = window.state && window.state.seenMsgs && window.state.seenMsgs.has(pkt.id);
 
       if (!seen) {
-        try { window.state && window.state.seenMsgs && window.state.seenMsgs.add(pkt.id); } catch (_) {}
+        try { window.state && window.state.seenMsgs && window.state.seenMsgs.add(pkt.id); } catch (_) { }
 
         log(`📥 Meta: ${pkt.meta && pkt.meta.fileName} (${fmtMB((pkt.meta && pkt.meta.fileSize) || 0)}) from=${pkt.senderId}`);
 
@@ -115,14 +115,14 @@ class SmartCore {
         if (!this.tasks.remoteFiles.has(meta.fileId)) this.tasks.remoteFiles.set(meta.fileId, new Set());
         this.tasks.remoteFiles.get(meta.fileId).add(pkt.senderId);
 
-        try { if (window.ui && window.ui.appendMsg) window.ui.appendMsg(pkt); } catch (_) {}
+        try { if (window.ui && window.ui.appendMsg) window.ui.appendMsg(pkt); } catch (_) { }
       }
 
       // ACK
       const pid = fromPeerId || pkt.senderId;
       const c = window.state && window.state.conns && window.state.conns[pid];
       if (c && c.open) {
-        try { c.send({ t: 'SMART_META_ACK', refId: pkt.id, from: window.state.myId }); } catch (_) {}
+        try { c.send({ t: 'SMART_META_ACK', refId: pkt.id, from: window.state.myId }); } catch (_) { }
       }
       return true;
     }
@@ -166,27 +166,28 @@ class SmartCore {
       return url;
     }
 
-    // 2. 远程文件：确保任务已启动
-    // 如果没有连接 Peer，尝试主动连接
+    const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
+    const isVideo = /\.(mp4|mov|m4v)$/i.test(fileName) || /video\//.test(fileType);
+
+    // 2. 远程文件：仅做“主动连接”尝试
+    // [关键修复] 不在 play() 里强行 startDownloadTask；下载应由 SW 的 STREAM_OPEN 触发（更稳，避免 SW 未 ready / 连接抖动导致卡死）
     const conns = window.state && window.state.conns;
     if (meta.senderId && window.p2p && conns && (!conns[meta.senderId] || !conns[meta.senderId].open)) {
       log(` play() 触发主动连接 -> ${meta.senderId}`);
       try {
         window.p2p.connectTo(meta.senderId);
-      } catch (_) {}
+      } catch (_) { }
     }
-
-    try { this.tasks.startDownloadTask(fileId); } catch (_) {}
-
-    const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
-    const isVideo = /\.(mp4|mov|m4v)$/i.test(fileName) || /video\//.test(fileType);
 
     // 3. MSE 降级模式 (针对无 SW 环境或特定视频)
     if (!hasSW && isVideo) {
       log(`🎥 播放路径 = MSE + MP4Box (无SW降级) | ${fileName}`);
 
+      // 无 SW 时必须由任务拉取数据
+      try { this.tasks.startDownloadTask(fileId); } catch (_) { }
+
       if (this.activePlayer) {
-        try { this.activePlayer.destroy(); } catch (_) {}
+        try { this.activePlayer.destroy(); } catch (_) { }
       }
 
       this.activePlayer = new P2PVideoPlayer(fileId);
@@ -195,7 +196,7 @@ class SmartCore {
       if (task) {
         const offsets = Array.from(task.parts.keys()).sort((a, b) => a - b);
         for (const off of offsets) {
-          try { this.activePlayer.appendChunk(task.parts.get(off), off); } catch (_) {}
+          try { this.activePlayer.appendChunk(task.parts.get(off), off); } catch (_) { }
         }
       }
 
@@ -208,8 +209,8 @@ class SmartCore {
       return this.activePlayer.getUrl();
     }
 
-    // 4. 标准 SW 直链
-    // log(`🎥 播放路径 = SW直链 | ${fileName}`);
+    // 4. 标准 SW 直链（SW 会触发 STREAM_OPEN -> 才启动下载/调度）
+    // log(` 播放路径 = SW直链 | ${fileName}`);
     const vUrl = `./virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
 
     if (isVideo) {
@@ -241,9 +242,7 @@ class SmartCore {
       return;
     }
 
-    // remote: ensure task started, then use SW virtual URL
-    try { this.tasks.startDownloadTask(fileId); } catch (_) {}
-
+    // remote: use SW virtual URL; do NOT force startDownloadTask here (由 SW 的 STREAM_OPEN 触发更稳)
     const url = `./virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
     const a = document.createElement('a');
     a.href = url;
@@ -263,7 +262,7 @@ class SmartCore {
       this._videos[fileId] = video;
 
       video.addEventListener('loadedmetadata', () => {
-        try { if (video.currentTime === 0) video.currentTime = 0.05; } catch (_) {}
+        try { if (video.currentTime === 0) video.currentTime = 0.05; } catch (_) { }
       });
 
       video.addEventListener('seeking', () => {
@@ -272,7 +271,7 @@ class SmartCore {
       });
 
       bindMoreVideoLogs(video, fileId);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   autoBindVideo(fileId) {
@@ -348,7 +347,7 @@ class SmartCore {
           });
 
           // 本地立即显示（复用原流程）
-          try { window.protocol.processIncoming(msg); } catch (_) {}
+          try { window.protocol.processIncoming(msg); } catch (_) { }
 
           return;
         }
@@ -377,7 +376,7 @@ class SmartCore {
 
     // remove SW listener
     if (navigator.serviceWorker && this._swListener) {
-      try { navigator.serviceWorker.removeEventListener('message', this._swListener); } catch (_) {}
+      try { navigator.serviceWorker.removeEventListener('message', this._swListener); } catch (_) { }
       this._swListener = null;
     }
   }

@@ -75,6 +75,13 @@ export class TaskManager {
     // head first
     if (!task.wantQueue.includes(0)) task.wantQueue.unshift(0);
 
+    // [稳定性修复] 视频/流播放：先拉取前几块，避免只拿到 off=0 后被尾部探测挤占导致卡住
+    const headPrefetchCount = Math.max(4, PARALLEL * 2);
+    for (let i = 1; i <= headPrefetchCount; i++) {
+      const off = i * CHUNK_SIZE;
+      if (off < task.size && !task.wantQueue.includes(off)) task.wantQueue.push(off);
+    }
+
     // tail probe only for video
     if (task.isVideo && task.size > CHUNK_SIZE) {
       const lastChunk = Math.floor((task.size - 1) / CHUNK_SIZE) * CHUNK_SIZE;
@@ -91,18 +98,41 @@ export class TaskManager {
     if (task.completed) return;
 
     const desired = PARALLEL;
+    // SW prefetch (高优先级：即使 wantQueue 已很长，也要把当前播放/下载所需块顶到最前，避免“只拿到 off=0 就卡住”)
+    if (task.swRequests && task.swRequests.size > 0) {
+      try {
+        const need = [];
+        task.swRequests.forEach(req => {
+          let cursor = Math.floor(req.current / CHUNK_SIZE) * CHUNK_SIZE;
+          const limit = Math.min(task.size, cursor + PREFETCH_AHEAD);
+          let count = 0;
+          const maxCount = Math.max(desired * 2, 8);
+          while (cursor < limit && cursor < task.size && count < maxCount) {
+            need.push(cursor);
+            cursor += CHUNK_SIZE;
+            count++;
+          }
+        });
 
-    // SW prefetch
-    task.swRequests.forEach(req => {
-      let cursor = Math.floor(req.current / CHUNK_SIZE) * CHUNK_SIZE;
-      const limit = cursor + PREFETCH_AHEAD;
-      while (task.wantQueue.length < desired && cursor < limit && cursor < task.size) {
-        if (!task.parts.has(cursor) && !task.inflight.has(cursor) && !task.wantQueue.includes(cursor)) {
-          task.wantQueue.push(cursor);
+        // de-dup + sort asc
+        const uniq = Array.from(new Set(need)).sort((a, b) => a - b);
+
+        // put required offsets to the FRONT (keep asc order)
+        for (let i = uniq.length - 1; i >= 0; i--) {
+          const off = uniq[i];
+          if (task.parts.has(off) || task.inflight.has(off)) continue;
+          const idx = task.wantQueue.indexOf(off);
+          if (idx >= 0) task.wantQueue.splice(idx, 1);
+          task.wantQueue.unshift(off);
         }
-        cursor += CHUNK_SIZE;
-      }
-    });
+
+        // prevent unbounded growth (keep front-priority items)
+        const maxQueue = Math.max(desired * 12, 120);
+        if (task.wantQueue.length > maxQueue) {
+          task.wantQueue.length = maxQueue;
+        }
+      } catch (_) {}
+    }
 
     // sequential
     while (task.wantQueue.length < desired) {
@@ -127,10 +157,13 @@ export class TaskManager {
   }
 
   dispatchRequests(task) {
-    // non-video must get head chunk first
+    // non-video: 如果正在被 SW Range 流式读取，则必须尊重 Range 优先级（不要强制先拿 off=0）
     if (!task.isVideo && !task.parts.has(0)) {
-      if (task.inflight.size > 0) return;
-      task.wantQueue = [0];
+      const hasSw = task.swRequests && task.swRequests.size > 0;
+      if (!hasSw) {
+        if (task.inflight.size > 0) return;
+        task.wantQueue = [0];
+      }
     }
 
     while (task.inflight.size < PARALLEL && task.wantQueue.length > 0) {

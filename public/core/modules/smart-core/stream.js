@@ -93,6 +93,19 @@ export class StreamManager {
       task.lastWanted = reqChunkIndex - CHUNK_SIZE;
     }
 
+    // [稳定性修复] 把当前 Range 所在 chunk 置顶，避免队列被其它探测/预取挤占导致卡住
+    try {
+      const must = [reqChunkIndex, reqChunkIndex + CHUNK_SIZE, reqChunkIndex + 2 * CHUNK_SIZE];
+      for (let i = must.length - 1; i >= 0; i--) {
+        const off = must[i];
+        if (off < 0 || off >= task.size) continue;
+        if (task.parts.has(off) || task.inflight.has(off)) continue;
+        const idx = task.wantQueue.indexOf(off);
+        if (idx >= 0) task.wantQueue.splice(idx, 1);
+        task.wantQueue.unshift(off);
+      }
+    } catch (_) {}
+
     this.processSwQueue(task);
     this.core.tasks.requestNextChunk(task);
   }
@@ -144,7 +157,17 @@ export class StreamManager {
             break;
           }
         } else {
-          // log(`SW ⏳ WAIT chunk @${chunkOffset} (req.current=${req.current})`);
+          // 缺块：把当前 chunk 顶到最高优先级，并尝试立刻发起请求（避免只等下次调度）
+          try {
+            if (!task.parts.has(chunkOffset) && !task.inflight.has(chunkOffset)) {
+              const idx = task.wantQueue.indexOf(chunkOffset);
+              if (idx >= 0) task.wantQueue.splice(idx, 1);
+              task.wantQueue.unshift(chunkOffset);
+            }
+            if (this.core && this.core.tasks && typeof this.core.tasks.dispatchRequests === 'function') {
+              this.core.tasks.dispatchRequests(task);
+            }
+          } catch (_) {}
           break;
         }
       }
