@@ -96,16 +96,11 @@ export function init() {
   window.remoteFiles = new Map();
   window.activeTasks = new Map();
   window.activePlayer = null;
-
   // === Video gating (no UI) ===
   // 目标：没有点击就不允许视频触发 STREAM_OPEN（防止“没点也全下”）
   window.__p1_armedVideos = window.__p1_armedVideos || new Set();
-  if (!window.smartCore.flags) window.smartCore.flags = { videoRequireClick: true };
-  window.smartCore.setFlags = (o = {}) => { try { Object.assign(window.smartCore.flags, o || {}); } catch(e) {} };
-  window.smartCore.armFile = (fileId) => { try { if (fileId) window.__p1_armedVideos.add(fileId); } catch(e) {} };
-
-
-  // SMART_META pending map
+  window.__p1_scFlags = window.__p1_scFlags || { videoRequireClick: true };
+// SMART_META pending map
   window.pendingMeta = new Map(); // id -> { scope, msg, targets: Map<pid,{acked,tries,timer}>, start, discoveryTimer }
 
   if (navigator.serviceWorker) {
@@ -308,7 +303,21 @@ export function init() {
       }
   };
 
-  setInterval(checkTimeouts, 1000);
+  
+  // === Video gating API (no UI) ===
+  // 注意：必须在 window.smartCore 对象已创建后再挂这些字段
+  window.__p1_armedVideos = window.__p1_armedVideos || new Set();
+  window.__p1_scFlags = window.__p1_scFlags || { videoRequireClick: true };
+
+  window.smartCore.flags = window.smartCore.flags || window.__p1_scFlags;
+  window.smartCore.setFlags = (o = {}) => {
+      try { Object.assign(window.smartCore.flags, o || {}); } catch(e) {}
+  };
+  window.smartCore.armFile = (fileId) => {
+      try { if (fileId) window.__p1_armedVideos.add(fileId); } catch(e) {}
+  };
+
+setInterval(checkTimeouts, 1000);
   setInterval(flushSendQueue, 100);
 }
 
@@ -477,7 +486,7 @@ function handleStreamOpen(data, source) {
          const name = (meta && meta.fileName) || (window.virtualFiles && window.virtualFiles.get(fileId) && window.virtualFiles.get(fileId).name) || '';
          const type = (meta && meta.fileType) || (window.virtualFiles && window.virtualFiles.get(fileId) && window.virtualFiles.get(fileId).type) || '';
          const isVideo = (/\.(mp4|mov|m4v)$/i.test(name) || /^video\//.test(type));
-         const requireClick = !!(window.smartCore && window.smartCore.flags && window.smartCore.flags.videoRequireClick);
+         const requireClick = !!((window.smartCore && window.smartCore.flags && window.smartCore.flags.videoRequireClick) || (window.__p1_scFlags && window.__p1_scFlags.videoRequireClick));
          const armed = !!(window.__p1_armedVideos && window.__p1_armedVideos.has(fileId));
          if (isVideo && requireClick && !armed) {
              try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'Video not armed (click required)' }); } catch(e) {}
