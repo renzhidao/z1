@@ -40,8 +40,11 @@ export class TaskManager {
 
       parts: new Map(),
       swRequests: new Map(),
+
+      // peers to try (do not require an existing conn here; pickConn will connect if needed)
       peers: [],
       peerIndex: 0,
+      _lastConnectTry: 0,
 
       nextOffset: 0,
       lastWanted: -CHUNK_SIZE,
@@ -52,10 +55,16 @@ export class TaskManager {
       completed: false
     };
 
-    if (meta.senderId && window.state && window.state.conns && window.state.conns[meta.senderId]) task.peers.push(meta.senderId);
+    // Prefer sender as primary peer even if conn not created yet
+    const myId = window.state && window.state.myId;
+    if (meta.senderId && meta.senderId !== myId && !task.peers.includes(meta.senderId)) {
+      task.peers.push(meta.senderId);
+    }
+
+    // Add known remote peers (even if conn not created yet)
     if (this.remoteFiles.has(fileId)) {
       this.remoteFiles.get(fileId).forEach(pid => {
-        if (!task.peers.includes(pid) && window.state && window.state.conns && window.state.conns[pid]) task.peers.push(pid);
+        if (pid && pid !== myId && !task.peers.includes(pid)) task.peers.push(pid);
       });
     }
 
@@ -146,15 +155,41 @@ export class TaskManager {
 
   pickConn(task) {
     if (!task.peers.length) return null;
-    for (let i = 0; i < task.peers.length; i++) {
-      const idx = (task.peerIndex + i) % task.peers.length;
-      const pid = task.peers[idx];
-      const c = window.state && window.state.conns && window.state.conns[pid];
-      if (c && c.open) {
-        task.peerIndex = (idx + 1) % task.peers.length;
-        return c;
+
+    const conns = window.state && window.state.conns;
+
+    const isConnOpen = (c) => {
+      if (!c) return false;
+      if (c.open) return true;
+      const dc = c.dataChannel || c._dc;
+      if (dc && dc.readyState === 'open') return true;
+      return false;
+    };
+
+    // try existing open conns first (round-robin)
+    if (conns) {
+      for (let i = 0; i < task.peers.length; i++) {
+        const idx = (task.peerIndex + i) % task.peers.length;
+        const pid = task.peers[idx];
+        const c = conns[pid];
+        if (isConnOpen(c)) {
+          task.peerIndex = (idx + 1) % task.peers.length;
+          return c;
+        }
       }
     }
+
+    // ✅ 缺失功能修复：当没有 open 连接时，主动触发重连（节流）
+    const now = Date.now();
+    if (window.p2p && typeof window.p2p.connectTo === 'function') {
+      if (!task._lastConnectTry || (now - task._lastConnectTry) > 2000) {
+        task._lastConnectTry = now;
+        for (const pid of task.peers) {
+          try { if (pid) window.p2p.connectTo(pid); } catch (_) {}
+        }
+      }
+    }
+
     return null;
   }
 
@@ -345,8 +380,7 @@ export class TaskManager {
         }
       });
 
-      // ✅ 修复：当 wantQueue 非空但暂时没有可用连接时，原逻辑会“永远不再调度”
-      // 这里每秒尝试一次 dispatch（连接恢复后即可继续请求）
+      // wantQueue 非空但暂时没有可用连接时，每秒尝试一次 dispatch（连接恢复后即可继续请求）
       if (task.inflight.size === 0 && task.wantQueue.length > 0 && !task.completed) {
         this.dispatchRequests(task);
       }
