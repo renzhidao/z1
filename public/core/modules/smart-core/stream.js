@@ -1,6 +1,6 @@
 // ServiceWorker virtual stream support
 
-import { CHUNK_SIZE } from './config.js';
+import { CHUNK_SIZE, PREFETCH_AHEAD } from './config.js';
 import { log } from './logger.js';
 
 export class StreamManager {

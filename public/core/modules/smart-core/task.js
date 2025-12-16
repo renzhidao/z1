@@ -41,6 +41,7 @@ export class TaskManager {
 
       parts: new Map(),
       swRequests: new Map(),
+      modePerOffset: new Map(),
 
       // peers to try (do not require an existing conn here; pickConn will connect if needed)
       peers: [],
@@ -192,7 +193,10 @@ export class TaskManager {
           const pid = conn && (conn._peerId || conn.peerId || conn.id || conn._id);
           log(`➡️ GET file=${task.fileId} off=${offNum} size=${CHUNK_SIZE} -> ${pid || 'peer'} inflight=${task.inflight.size + 1}/${PARALLEL} q=${task.wantQueue.length}`);
         } catch (_) {}
-        conn.send({ t: 'SMART_GET', fileId: task.fileId, offset: offNum, size: CHUNK_SIZE, reqId: task.fileId });
+        const mode = (task.modePerOffset && task.modePerOffset.get(offNum)) || 'GET';
+        const typ = (mode == 'CHUNK') ? 'SMART_GET_CHUNK' : 'SMART_GET';
+        const myId = (window.state && window.state.myId) || null;
+        conn.send({ t: typ, fileId: task.fileId, offset: offNum, size: CHUNK_SIZE, reqId: task.fileId, from: myId });
         task.inflight.add(offNum);
         task.inflightTimestamps.set(offNum, Date.now());
         statBump('req');
@@ -359,8 +363,11 @@ export class TaskManager {
     const file = window.virtualFiles.get(pkt.fileId);
     if (!file) return;
 
-    const offset = toNum(pkt.offset);
+    let offset = toNum(pkt.offset);
+    if (!Number.isFinite(offset)) offset = toNum(pkt.off);
+    if (!Number.isFinite(offset)) offset = toNum(pkt.o);
     let size = toNum(pkt.size);
+    if (!Number.isFinite(size)) size = toNum(pkt.len);
     if (!Number.isFinite(offset) || offset < 0) return;
     if (!Number.isFinite(size) || size <= 0) size = CHUNK_SIZE;
     if (offset >= file.size) return;
@@ -382,15 +389,35 @@ export class TaskManager {
         packet[0] = headerBytes.byteLength;
         packet.set(headerBytes, 1);
         packet.set(new Uint8Array(buffer), 1 + headerBytes.byteLength);
-        const conn = window.state && window.state.conns && window.state.conns[fromId];
-        const dc = conn && (conn.dataChannel || conn._dc);
-        const isOpen = !!(conn && (conn.open || (dc && dc.readyState === 'open')));
-        if (isOpen) {
-          try { log(`📤 SEND_CHUNK to=${fromId} file=${pkt.fileId} off=${offset} bytes=${packet.byteLength}`); } catch (_) {}
+        const conns = window.state && window.state.conns;
+        let conn = null;
+        const isOpen = (c) => {
+          try {
+            if (!c) return false;
+            if (c.open) return true;
+            const dc = c.dataChannel || c._dc;
+            return !!(dc && dc.readyState === 'open');
+          } catch (_) { return false; }
+        };
+
+        try {
+          if (conns) {
+            if (fromId && conns[fromId]) conn = conns[fromId];
+            if (!isOpen(conn) && pkt && pkt.from && conns[pkt.from]) conn = conns[pkt.from];
+            if (!isOpen(conn)) {
+              conn = null;
+              for (const k in conns) { if (isOpen(conns[k])) { conn = conns[k]; break; } }
+            }
+          }
+        } catch (_) {}
+
+        if (isOpen(conn)) {
+          try { log(`📤 SEND_CHUNK to=${fromId||pkt.from||'peer'} file=${pkt.fileId} off=${offset} bytes=${packet.byteLength}`); } catch (_) {}
           this.sendSafe(conn, packet);
         } else {
-          try { log(`🔌 SEND_NO_CONN to=${fromId} file=${pkt.fileId} off=${offset}`); } catch (_) {}
+          try { log(`🔌 SEND_NO_CONN to=${fromId||pkt.from||'peer'} file=${pkt.fileId} off=${offset}`); } catch (_) {}
         }
+
       } catch (e) {
         log('❌ 发送组包异常: ' + e);
       }
@@ -464,8 +491,9 @@ export class TaskManager {
         if (now - ts > 3000) {
           task.inflight.delete(offset);
           task.inflightTimestamps.delete(offset);
+          task.modePerOffset && task.modePerOffset.set(offset, 'CHUNK');
           task.wantQueue.unshift(offset);
-          log(`⏱️ 超时重试 off=${offset}`);
+          log(`⏱️ 超时重试 off=${offset} -> 切换为 SMART_GET_CHUNK`);
         }
       });
 
