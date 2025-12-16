@@ -58,7 +58,7 @@ export function init() {
   
   // === 视频错误处理 + 环境检测 ===
   window.handleVideoError = function(el, fileName) {
-      if (el.src.includes('./virtual/file/')) {
+      if (el.src.includes('../virtual/file/')) {
           let retries = parseInt(el.dataset.retry || '0');
           if (retries < 3) {
               el.dataset.retry = retries + 1;
@@ -114,7 +114,7 @@ export function init() {
   window.handleImageError = function(el, fileName) {
 
       // === 修复：SW启动延迟导致的404自动重试 ===
-      if (el.src.includes('./virtual/file/')) {
+      if (el.src.includes('../virtual/file/')) {
           let retries = parseInt(el.dataset.retry || '0');
           if (retries < 3) {
               el.dataset.retry = retries + 1;
@@ -147,7 +147,7 @@ export function init() {
       let reason = '未知';
       if (src.startsWith('blob:')) {
           reason = 'Blob已失效';
-      } else if (src.includes('./virtual/file/')) {
+      } else if (src.includes('../virtual/file/')) {
           fetch(src, {method: 'HEAD'}).then(res => {
               reason = !res.ok ? `HTTP ${res.status}` : '数据损坏';
               report(reason);

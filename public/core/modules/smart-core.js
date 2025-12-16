@@ -227,7 +227,7 @@ class SmartCore {
 
     // 4. 标准 SW 直链（SW 会触发 STREAM_OPEN -> 才启动下载/调度）
     // log(` 播放路径 = SW直链 | ${fileName}`);
-    const vUrl = `../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
+    const vUrl = `.../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
 
     if (isVideo) {
       setTimeout(() => {
@@ -259,7 +259,7 @@ class SmartCore {
     }
 
     // remote: use SW virtual URL; do NOT force startDownloadTask here (由 SW 的 STREAM_OPEN 触发更稳)
-    const url = `../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
+    const url = `.../virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;

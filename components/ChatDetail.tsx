@@ -255,10 +255,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
     if (!url) return url;
     if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http'))
       return url;
-    if (url.startsWith('/virtual/file/')) {
+    if (url.startsWith('./virtual/file/')) {
       return getCoreBase() + url.slice(2);
     }
-    if (url.startsWith('/virtual/file/')) {
+    if (url.startsWith('./virtual/file/')) {
       const base = getCoreBase().replace(/\/$/, '');
       return base + url;
     }
@@ -732,7 +732,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
                         onError={(e) => {
                           const img = e.currentTarget as HTMLImageElement;
                           const src = mediaSrc || img.src || '';
-                          const isVirtual = src.includes('/virtual/file/');
+                          const isVirtual = src.includes('./virtual/file/');
                           const isBlob = src.startsWith('blob:');
                           const retry = parseInt(
                             img.dataset.retry || '0',
