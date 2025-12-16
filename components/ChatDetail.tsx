@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
-import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, X, AlertCircle } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, X } from 'lucide-react';
 import CallOverlay from './CallOverlay';
 
 interface ChatDetailProps {
@@ -22,7 +22,7 @@ const formatMessageTime = (date: Date) => {
 
   const hours = date.getHours();
   const minutes = date.getMinutes().toString().padStart(2, '0');
-  
+
   let period = "上午";
   let displayHour = hours;
 
@@ -31,7 +31,7 @@ const formatMessageTime = (date: Date) => {
   else if (hours === 12) { period = "中午"; }
   else if (hours < 18) { period = "下午"; displayHour = hours - 12; }
   else { period = "晚上"; displayHour = hours - 12; }
-  
+
   if (displayHour === 0 && period !== '凌晨') displayHour = 12;
 
   const timePart = `${period}${displayHour.toString().padStart(2, '0')}:${minutes}`;
@@ -70,12 +70,12 @@ const VoiceMessage: React.FC<{ duration: number, isMe: boolean, isPlaying: boole
 
 // --- 辅助组件：视频消息 ---
 const VideoMessage: React.FC<{ src: string, fileName: string }> = ({ src, fileName }) => (
-    <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
-        <video src={src} controls className="w-full max-h-[300px]" onError={(e) => console.error("Video load error", e)} />
-        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-            视频
-        </div>
+  <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
+    <video src={src} controls className="w-full max-h-[300px]" onError={(e) => console.error("Video load error", e)} />
+    <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+      视频
     </div>
+  </div>
 );
 
 // --- 辅助组件：长按菜单项 ---
@@ -96,8 +96,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const [showCallMenu, setShowCallMenu] = useState(false);
   const [activeCall, setActiveCall] = useState<'voice' | 'video' | null>(null);
   const [msgContextMenu, setMsgContextMenu] = useState<{ visible: boolean; x: number; y: number; message: Message | null; }>({ visible: false, x: 0, y: 0, message: null });
-  
-  // 新增：图片预览状态
+
+  // 图片预览
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Refs
@@ -114,44 +114,83 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // 修复虚拟路径
+  const getCoreBase = () => {
+    const loc = window.location;
+    let path = loc.pathname;
+    if (path.endsWith('.html') || path.endsWith('.htm')) {
+      path = path.substring(0, path.lastIndexOf('/') + 1);
+    }
+    if (!path.endsWith('/')) {
+      path = path.substring(0, path.lastIndexOf('/') + 1);
+    }
+    const origin = (loc.origin === 'null') ? '' : loc.origin;
+    return origin + path + 'core/';
+  };
+
+  const normalizeVirtualUrl = (url: string) => {
+    if (!url) return url;
+    if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http')) return url;
+    if (url.startsWith('./virtual/file/')) {
+      return getCoreBase() + url.slice(2);
+    }
+    if (url.startsWith('/virtual/file/')) {
+      const base = getCoreBase().replace(/\/$/, '');
+      return base + url;
+    }
+    return url;
+  };
+
   // --- 核心逻辑注入：数据加载与监听 ---
   useEffect(() => {
+    const processMessages = (msgs: any[]) => {
+      // 1. 过滤破损媒体消息
+      const filtered = msgs.filter(m => {
+        const isBroken = (m.kind === 'image' || m.kind === 'video') && !m.txt && !(m.meta && m.meta.fileId);
+        return !isBroken;
+      });
+
+      return filtered.map(m => ({
+        ...m,
+        text: m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName}` : m.kind === 'image' ? '[图片]' : m.kind === 'voice' ? `[语音] ${m.meta?.fileName}` : ''),
+        timestamp: new Date(m.ts)
+      })).sort((a: any, b: any) => a.ts - b.ts);
+    };
+
     if (window.db) {
-        window.db.getRecent(50, chat.id).then(msgs => {
-            const mapped = msgs.map(m => ({
-                ...m,
-                text: m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName}` : m.kind === 'image' ? '[图片]' : m.kind === 'voice' ? `[语音] ${m.meta?.fileName}` : ''),
-                timestamp: new Date(m.ts)
-            }));
-            setMessages(mapped.sort((a,b) => a.ts - b.ts));
-            setTimeout(scrollToBottom, 100);
-        });
+      window.db.getRecent(50, chat.id).then((msgs: any[]) => {
+        setMessages(processMessages(msgs));
+        setTimeout(scrollToBottom, 100);
+      });
     }
 
     const handler = (e: CustomEvent) => {
-        const { type, data } = e.detail;
-        if (type === 'msg') {
-            const raw = data;
-            const isPublic = chat.id === 'all' && raw.target === 'all';
-            const isRelated = (raw.senderId === chat.id && raw.target === currentUserId) || (raw.senderId === currentUserId && raw.target === chat.id);
-            
-            if (isPublic || isRelated) {
-                const newMsg: Message = {
-                    ...raw,
-                    text: raw.txt || (raw.kind === 'SMART_FILE_UI' ? `[文件] ${raw.meta?.fileName}` : raw.kind === 'image' ? '[图片]' : raw.kind === 'voice' ? `[语音] ${raw.meta?.fileName}` : ''),
-                    timestamp: new Date(raw.ts)
-                };
-                
-                // 核心修改：严格 ID 去重 (借鉴旧版 document.getElementById 逻辑)
-                setMessages(prev => {
-                    if (prev.find(m => m.id === newMsg.id)) return prev; // 绝对去重
-                    return [...prev, newMsg].sort((a: any,b: any) => a.ts - b.ts);
-                });
-                setTimeout(scrollToBottom, 100);
-            }
-        }
+      const { type, data } = e.detail;
+      if (type !== 'msg') return;
+
+      const raw = data;
+      const isPublic = chat.id === 'all' && raw.target === 'all';
+      const isRelated = (raw.senderId === chat.id && raw.target === currentUserId) || (raw.senderId === currentUserId && raw.target === chat.id);
+
+      if (isPublic || isRelated) {
+        // 实时消息同样过滤破损包
+        const isBroken = (raw.kind === 'image' || raw.kind === 'video') && !raw.txt && !(raw.meta && raw.meta.fileId);
+        if (isBroken) return;
+
+        const newMsg = {
+          ...raw,
+          text: raw.txt || (raw.kind === 'SMART_FILE_UI' ? `[文件] ${raw.meta?.fileName}` : raw.kind === 'image' ? '[图片]' : raw.kind === 'voice' ? `[语音] ${raw.meta?.fileName}` : ''),
+          timestamp: new Date(raw.ts)
+        };
+
+        setMessages(prev => {
+          if (prev.find(m => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts);
+        });
+        setTimeout(scrollToBottom, 100);
+      }
     };
-    
+
     window.addEventListener('core-ui-update', handler as EventListener);
     return () => window.removeEventListener('core-ui-update', handler as EventListener);
   }, [chat.id, currentUserId]);
@@ -164,103 +203,110 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   };
 
   const handleSmartFileDownload = (msg: any) => {
-      if (msg.meta && window.smartCore) {
-          window.smartCore.download(msg.meta.fileId, msg.meta.fileName);
-          onShowToast("开始下载...");
-      }
+    if (msg.meta && window.smartCore) {
+      window.smartCore.download(msg.meta.fileId, msg.meta.fileName);
+      onShowToast("开始下载...");
+    }
   };
 
-  const handlePlayVoice = (msg: Message) => {
+  const handlePlayVoice = (msg: any) => {
     if (!msg.meta?.fileId || !window.smartCore) return;
-    
     if (playingMessageId === msg.id) {
-        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-        setPlayingMessageId(null);
-        return;
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+      setPlayingMessageId(null);
+      return;
     }
     if (audioRef.current) audioRef.current.pause();
 
-    const url = window.smartCore.play(msg.meta.fileId, msg.meta.fileName);
+    const url = normalizeVirtualUrl(window.smartCore.play(msg.meta.fileId, msg.meta.fileName));
     const audio = new Audio(url);
     audioRef.current = audio;
-    
+
     setPlayingMessageId(msg.id);
     audio.onended = () => { setPlayingMessageId(null); audioRef.current = null; };
     audio.play().catch(e => { console.error("Play failed", e); onShowToast("播放失败"); setPlayingMessageId(null); });
   };
 
-  // --- 录音逻辑 ---
+  // --- 录音 ---
   const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault(); 
+    e.preventDefault();
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-        voiceStartTimeRef.current = Date.now();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      voiceStartTimeRef.current = Date.now();
 
-        mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
-        mediaRecorder.onstop = async () => {
-            const duration = Math.round((Date.now() - voiceStartTimeRef.current) / 1000);
-            if (duration < 1) { onShowToast("说话时间太短"); return; }
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            const file = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
-            
-            if (window.smartCore && window.protocol) {
-                const { msg } = window.smartCore.sendFile(file, chat.id, { kind: 'voice', txt: duration.toString() });
-                window.protocol.sendMsg(null, 'voice', { ...msg.meta, fileObj: file });
-            }
-        };
-        mediaRecorder.start();
-        setVoiceRecording(true);
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
+      mediaRecorder.onstop = async () => {
+        const duration = Math.round((Date.now() - voiceStartTimeRef.current) / 1000);
+        if (duration < 1) { onShowToast("说话时间太短"); return; }
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const file = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+
+        if (window.protocol) {
+          window.protocol.sendMsg(null, 'voice' as any, {
+            fileObj: file,
+            name: file.name,
+            size: file.size,
+            type: file.type
+          });
+        }
+      };
+      mediaRecorder.start();
+      setVoiceRecording(true);
     } catch (err) { console.error(err); onShowToast("无法访问麦克风"); }
   };
 
   const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     if (mediaRecorderRef.current && voiceRecording) {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-        setVoiceRecording(false);
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      setVoiceRecording(false);
     }
   };
 
   // --- 文件选择 ---
   const handleFileAction = (type: 'image' | 'video' | 'file') => {
-      if (!fileInputRef.current) return;
-      fileInputRef.current.value = '';
-      if (type === 'image') fileInputRef.current.accept = "image/*";
-      else if (type === 'video') fileInputRef.current.accept = "video/*";
-      else fileInputRef.current.accept = "*/*";
-      fileInputRef.current.click();
-      setIsPlusOpen(false);
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = '';
+    if (type === 'image') fileInputRef.current.accept = "image/*";
+    else if (type === 'video') fileInputRef.current.accept = "video/*";
+    else fileInputRef.current.accept = "*/*";
+    fileInputRef.current.click();
+    setIsPlusOpen(false);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      
-      let kind = 'SMART_FILE_UI';
-      if (file.type.startsWith('image/')) kind = 'image';
-      else if (file.type.startsWith('video/')) kind = 'video'; 
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      if (window.smartCore && window.protocol) {
-          const { msg } = window.smartCore.sendFile(file, chat.id, { kind });
-          if (kind === 'video') msg.meta = { ...msg.meta, fileType: file.type };
-          else if (kind === 'image') msg.meta = { ...msg.meta, fileType: file.type }; // 明确标记图片类型
-          
-          // 发送时不手动添加，依赖 core-ui-update，同时附带 fileObj 用于本地快速回显
-          window.protocol.sendMsg(null, kind as any, { ...msg.meta, fileObj: file });
-      }
+    // 关键修复：只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META
+    // 避免“双卡片”
+    let kind: any = 'file';
+    if (file.type.startsWith('image/')) kind = 'image';
+    if (file.type.startsWith('video/')) kind = 'video';
+
+    if (window.protocol) {
+      window.protocol.sendMsg(null, kind, {
+        fileObj: file,
+        name: file.name,
+        size: file.size,
+        type: file.type
+      });
+    } else {
+      onShowToast("核心未连接");
+    }
+    setIsPlusOpen(false);
   };
 
   // --- 通话发起 ---
   const startCall = (type: 'voice' | 'video') => {
-      setShowCallMenu(false);
-      setActiveCall(type);
+    setShowCallMenu(false);
+    setActiveCall(type);
   };
 
-  // --- 交互事件 ---
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendText(); }
   };
@@ -272,7 +318,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     const touch = e.touches[0];
     const { clientX, clientY } = touch;
     timerRef.current = setTimeout(() => {
-      let menuY = clientY - 140; 
+      let menuY = clientY - 140;
       if (menuY < 60) menuY = clientY + 20;
       setMsgContextMenu({ visible: true, x: Math.min(Math.max(clientX - 150, 10), window.innerWidth - 310), y: menuY, message: msg });
       if (navigator.vibrate) navigator.vibrate(50);
@@ -281,28 +327,24 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const handleMessageTouchEnd = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
 
   const menuItems = [
-      { icon: <ImageIcon size={24} />, label: '照片', action: () => handleFileAction('image') },
-      { icon: <Camera size={24} />, label: '拍摄', action: () => handleFileAction('image') },
-      { icon: <Video size={24} />, label: '视频通话', action: () => setShowCallMenu(true) },
-      { icon: <MapPin size={24} />, label: '位置', action: () => {} },
-      { icon: <Wallet size={24} />, label: '红包', action: () => {} },
-      { icon: <FolderHeart size={24} />, label: '收藏', action: () => {} },
-      { icon: <UserIcon size={24} />, label: '个人名片', action: () => {} },
-      { icon: <Smartphone size={24} />, label: '文件', action: () => handleFileAction('file') },
+    { icon: <ImageIcon size={24} />, label: '照片', action: () => handleFileAction('image') },
+    { icon: <Camera size={24} />, label: '拍摄', action: () => handleFileAction('image') },
+    { icon: <Video size={24} />, label: '视频通话', action: () => setShowCallMenu(true) },
+    { icon: <MapPin size={24} />, label: '位置', action: () => {} },
+    { icon: <Wallet size={24} />, label: '红包', action: () => {} },
+    { icon: <FolderHeart size={24} />, label: '收藏', action: () => {} },
+    { icon: <UserIcon size={24} />, label: '个人名片', action: () => {} },
+    { icon: <Smartphone size={24} />, label: '文件', action: () => handleFileAction('file') },
   ];
 
-  // 核心修改：借鉴旧版 smartCore.play 逻辑 + 错误处理
-  const getMediaSrc = (msg: Message) => {
-      // 1. 发送方：本地有 fileObj (秒开)
-      if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
-      
-      // 2. 接收方/发送完刷新后：使用 fileId 获取核心流地址
-      if (msg.meta?.fileId && window.smartCore) {
-          return window.smartCore.play(msg.meta.fileId, msg.meta.fileName);
-      }
-      
-      // 3. 兜底
-      return msg.txt || '';
+  // 媒体 URL：对齐旧版 smartCore.play + 修正 /core/ 作用域
+  const getMediaSrc = (msg: any) => {
+    if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
+    if (msg.meta?.fileId && window.smartCore) {
+      const u = window.smartCore.play(msg.meta.fileId, msg.meta.fileName || msg.meta.fileName || '');
+      return normalizeVirtualUrl(u);
+    }
+    return msg.txt || '';
   };
 
   return (
@@ -312,20 +354,20 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       {/* 图片预览覆盖层 */}
       {previewUrl && (
         <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center animate-in fade-in duration-200" onClick={() => setPreviewUrl(null)}>
-            <img src={previewUrl} className="max-w-full max-h-full object-contain" alt="Preview" />
-            <button className="absolute top-10 right-4 p-2 bg-white/20 rounded-full text-white backdrop-blur-sm active:bg-white/30" onClick={() => setPreviewUrl(null)}>
-                <X size={24} strokeWidth={2} />
-            </button>
+          <img src={previewUrl} className="max-w-full max-h-full object-contain" alt="Preview" />
+          <button className="absolute top-10 right-4 p-2 bg-white/20 rounded-full text-white backdrop-blur-sm active:bg-white/30" onClick={() => setPreviewUrl(null)}>
+            <X size={24} strokeWidth={2} />
+          </button>
         </div>
       )}
 
       {/* Call Overlay */}
       {activeCall && (
-          <CallOverlay 
-              user={chat.user} 
-              type={activeCall} 
-              onHangup={() => setActiveCall(null)} 
-          />
+        <CallOverlay
+          user={chat.user}
+          type={activeCall}
+          onHangup={() => setActiveCall(null)}
+        />
       )}
 
       {/* Header */}
@@ -333,11 +375,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         <button onClick={onBack} className="p-2 -ml-1 text-[#191919] hover:bg-gray-200/50 rounded-full transition-colors flex items-center active:opacity-60">
           <ChevronLeft size={26} strokeWidth={1.5} />
           <span className="text-[16px] font-normal ml-[-4px]">
-             {chat.unreadCount > 0 ? `(${chat.unreadCount})` : '微信'}
+            {chat.unreadCount > 0 ? `(${chat.unreadCount})` : '微信'}
           </span>
         </button>
         <span className="text-[17px] font-medium text-[#191919] absolute left-1/2 -translate-x-1/2">
-           {chat.user.name}
+          {chat.user.name}
         </span>
         <button onClick={onUserClick} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60">
           <MoreHorizontal size={24} strokeWidth={1.5} />
@@ -345,21 +387,25 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       </header>
 
       {/* Message List */}
-      <div 
-         ref={scrollRef}
-         className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative"
-         onClick={() => { setIsPlusOpen(false); setMsgContextMenu({ ...msgContextMenu, visible: false }); }}
-         onTouchStart={() => setMsgContextMenu({ ...msgContextMenu, visible: false })}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative"
+        onClick={() => { setIsPlusOpen(false); setMsgContextMenu({ ...msgContextMenu, visible: false }); }}
+        onTouchStart={() => setMsgContextMenu({ ...msgContextMenu, visible: false })}
       >
         {messages.map((msg: any, idx) => {
           const isMe = msg.senderId === currentUserId;
           const showTime = idx === 0 || (new Date(msg.timestamp).getTime() - new Date(messages[idx - 1].timestamp).getTime() > 5 * 60 * 1000);
           const isContextActive = msgContextMenu.visible && msgContextMenu.message?.id === msg.id;
           const bubbleColorHex = isMe ? (isContextActive ? '#89D960' : '#95EC69') : (isContextActive ? '#F2F2F2' : '#FFFFFF');
-          
-          // 核心修改：精准分类逻辑，防止多卡片 (图片/视频不被识别为 File)
-          const isVideo = msg.kind === 'video' || (msg.kind === 'SMART_FILE_UI' && msg.meta?.fileType?.startsWith('video/'));
-          const isImage = !isVideo && (msg.kind === 'image' || (msg.kind === 'SMART_FILE_UI' && msg.meta?.fileType?.startsWith('image/')));
+
+          const meta = msg.meta || {};
+          const fileType = meta.fileType || msg.fileType || '';
+          const fileName = meta.fileName || msg.fileName || '';
+
+          // 精准识别：SMART_FILE_UI 里按 fileType/fileName 决定展示
+          const isVideo = (typeof fileType === 'string' && fileType.startsWith('video/')) || (/\.(mp4|mov|m4v|webm)$/i.test(fileName || ''));
+          const isImage = !isVideo && ((typeof fileType === 'string' && fileType.startsWith('image/')) || (/\.(png|jpe?g|gif|webp|bmp)$/i.test(fileName || '')) || msg.kind === 'image');
           const isFile = msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage;
           const isVoice = msg.kind === 'voice';
 
@@ -374,61 +420,55 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                   </span>
                 </div>
               )}
-              
+
               <div className={`flex ${isMe ? 'flex-row-reverse' : 'flex-row'} items-start group`}>
-                <img 
-                  src={isMe ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUserId}` : chat.user.avatar} 
+                <img
+                  src={isMe ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUserId}` : chat.user.avatar}
                   className="w-10 h-10 rounded-[6px] shadow-sm object-cover bg-gray-200 cursor-pointer flex-shrink-0"
                   onClick={!isMe && onUserClick ? onUserClick : undefined}
                   alt="Avatar"
                 />
 
-                <div 
+                <div
                   className={`max-w-[70%] ${isMe ? 'mr-2.5' : 'ml-2.5'} transition-opacity duration-200`}
                   onTouchStart={(e) => handleMessageTouchStart(e, msg)}
                   onTouchEnd={handleMessageTouchEnd}
                   onContextMenu={(e) => e.preventDefault()}
                 >
-                   {isImage ? (
-                       <div className="relative">
-                           <img 
-                              src={mediaSrc}
-                              className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover" 
-                              alt="Image"
-                              onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
-                              onError={(e) => {
-                                  // 图片加载失败处理：尝试重试或显示裂图提示
-                                  const target = e.target as HTMLImageElement;
-                                  if (!target.dataset.retried) {
-                                      target.dataset.retried = "true";
-                                      setTimeout(() => target.src = mediaSrc, 1000); // 简单的1秒重试
-                                  }
-                              }}
-                           />
-                       </div>
-                   ) : isVideo ? (
-                       <VideoMessage 
-                          src={mediaSrc}
-                          fileName={msg.meta?.fileName || 'Video'}
-                       />
-                   ) : isFile ? (
-                       <div onClick={() => handleSmartFileDownload(msg)} className="bg-white p-3 rounded-[4px] shadow-sm border border-gray-100 cursor-pointer active:bg-gray-50">
-                           <div className="flex items-center gap-2">
-                               <div className="bg-blue-500 text-white p-2 rounded">📄</div>
-                               <div>
-                                   <div className="text-sm font-medium">{msg.meta?.fileName || '未知文件'}</div>
-                                   <div className="text-xs text-gray-400">{msg.meta?.fileSize ? (msg.meta.fileSize / 1024 / 1024).toFixed(2) : 0} MB</div>
-                               </div>
-                           </div>
-                       </div>
-                   ) : isVoice ? (
-                      <VoiceMessage duration={parseInt(msg.txt || '0')} isMe={isMe} isPlaying={playingMessageId === msg.id} onPlay={() => handlePlayVoice(msg)} />
-                   ) : (
-                      <div className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm select-none min-h-[40px] flex items-center" style={{ backgroundColor: bubbleColorHex }}>
-                         <div className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${isMe ? 'right-[-6px]' : 'left-[-6px]'}`} style={{ borderLeftColor: isMe ? bubbleColorHex : 'transparent', borderRightColor: !isMe ? bubbleColorHex : 'transparent', borderTopColor: 'transparent', borderBottomColor: 'transparent' }}></div>
-                         <span className="text-left">{msg.text}</span>
+                  {isImage ? (
+                    <img
+                      src={mediaSrc}
+                      className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover"
+                      alt="Image"
+                      onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        if (!target.dataset.retried) {
+                          target.dataset.retried = 'true';
+                          setTimeout(() => { target.src = mediaSrc; }, 1000);
+                        }
+                      }}
+                    />
+                  ) : isVideo ? (
+                    <VideoMessage src={mediaSrc} fileName={fileName || 'Video'} />
+                  ) : isFile ? (
+                    <div onClick={() => handleSmartFileDownload(msg)} className="bg-white p-3 rounded-[4px] shadow-sm border border-gray-100 cursor-pointer active:bg-gray-50">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-blue-500 text-white p-2 rounded">📄</div>
+                        <div>
+                          <div className="text-sm font-medium">{meta?.fileName || '未知文件'}</div>
+                          <div className="text-xs text-gray-400">{meta?.fileSize ? (meta.fileSize / 1024 / 1024).toFixed(2) : 0} MB</div>
+                        </div>
                       </div>
-                   )}
+                    </div>
+                  ) : isVoice ? (
+                    <VoiceMessage duration={parseInt(msg.txt || '0')} isMe={isMe} isPlaying={playingMessageId === msg.id} onPlay={() => handlePlayVoice(msg)} />
+                  ) : (
+                    <div className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm select-none min-h-[40px] flex items-center" style={{ backgroundColor: bubbleColorHex }}>
+                      <div className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${isMe ? 'right-[-6px]' : 'left-[-6px]'}`} style={{ borderLeftColor: isMe ? bubbleColorHex : 'transparent', borderRightColor: !isMe ? bubbleColorHex : 'transparent', borderTopColor: 'transparent', borderBottomColor: 'transparent' }}></div>
+                      <span className="text-left">{msg.text}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
