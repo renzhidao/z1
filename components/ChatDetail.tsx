@@ -12,6 +12,45 @@ interface ChatDetailProps {
   onVideoCall?: () => void;
 }
 
+// --- 辅助组件：智能图片加载 (解决消息先到文件后到导致的裂开问题) ---
+const SmartImage: React.FC<{ src: string; className?: string; alt?: string; onClick?: (e: any) => void }> = ({ src, className, alt, onClick }) => {
+  const [imgSrc, setImgSrc] = useState<string>(src);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 30; // 最多重试30次 (约60秒)
+  const timerRef = useRef<any>(null);
+
+  useEffect(() => {
+    setImgSrc(src);
+    setRetryCount(0);
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, [src]);
+
+  const handleError = () => {
+    if (retryCount < maxRetries) {
+      const delay = 2000; // 2秒重试一次
+      timerRef.current = setTimeout(() => {
+        setRetryCount(prev => prev + 1);
+        // 通过添加/更新时间戳参数强制浏览器重新请求 URL，避免缓存
+        const separator = src.includes('?') ? '&' : '?';
+        setImgSrc(`${src}${separator}_retry=${Date.now()}`);
+      }, delay);
+    }
+  };
+
+  // 即使裂开也保持原位大小，避免布局跳动，直到加载成功
+  return (
+    <img 
+      src={imgSrc} 
+      className={className} 
+      alt={alt} 
+      onClick={onClick}
+      onError={handleError}
+      // 如果重试中，稍微降低透明度提示正在加载
+      style={{ opacity: retryCount > 0 && retryCount < maxRetries ? 0.7 : 1 }}
+    />
+  );
+};
+
 // --- 辅助函数：时间格式化 ---
 const formatMessageTime = (date: Date) => {
   const now = new Date();
@@ -100,16 +139,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   // 图片预览
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  // 调试开关：图片裂图排查用（随时可删）
-  const DEBUG_MEDIA = true;
-
-  // SW 是否已接管当前页面：图片/文件流必须靠 SW 拦截 /virtual/file/*
-  const [swReady, setSwReady] = useState<boolean>(!!(navigator.serviceWorker && navigator.serviceWorker.controller));
-  const [swReloadToken, setSwReloadToken] = useState<number>(0);
-  const [debugLogs, setDebugLogs] = useState<string[]>(['DEBUG ON']);
-  const addLog = (msg: string) => setDebugLogs(prev => [msg, ...prev].slice(0, 5)); // 只留最新5条
-
-
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -141,12 +170,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const normalizeVirtualUrl = (url: string) => {
     if (!url) return url;
     if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http')) return url;
-    try {
-      // 关键：把 ./virtual/file/* 变成绝对 URL，避免相对路径在不同页面基准下走错
-      return new URL(url, window.location.href).toString();
-    } catch (e) {
-      return url;
+    if (url.startsWith('./virtual/file/')) {
+      return getCoreBase() + url.slice(2);
     }
+    if (url.startsWith('/virtual/file/')) {
+      const base = getCoreBase().replace(/\/$/, '');
+      return base + url;
+    }
+    return url;
   };
 
   // 关键修复：进入聊天时同步 Core 的 activeChat，否则协议层不会把消息路由到当前会话
@@ -160,10 +191,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         }
       }
     } catch (_) {}
-  }, [chat.id]);
-
-  useEffect(() => {
-    try { if (DEBUG_MEDIA) addLog(`[DBG] mount chat=${String(chat.id)}`); } catch (_) {}
   }, [chat.id]);
 
   // --- 核心逻辑注入：数据加载与监听 ---
@@ -365,29 +392,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   // 媒体 URL：对齐旧版 smartCore.play + 修正 /core/ 作用域
   const getMediaSrc = (msg: any) => {
     if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
-
     if (msg.meta?.fileId && window.smartCore) {
-      const raw = window.smartCore.play(msg.meta.fileId, msg.meta.fileName || msg.meta.fileName || '');
-      const u0 = normalizeVirtualUrl(raw);
-      const isVirtual = typeof u0 === 'string' && u0.includes('/virtual/file/');
-
-      // SW 未接管时，先不发起虚拟流请求，避免 404 裂图；等 swReady=true 后再加载
-      if (isVirtual && !swReady) {
-        try { if (DEBUG_MEDIA) addLog(`[MEDIA] Wait SW: ${u0.slice(-20)}`); } catch (_) {}
-        return '';
-      }
-
-      // controller 就绪后，给 URL 加一个参数强制重新加载一次（解决“先 404 后不再重试”）
-      if (isVirtual && swReloadToken) {
-        const sep = u0.includes('?') ? '&' : '?';
-        return `${u0}${sep}r=${swReloadToken}`;
-      }
-
-      return u0;
+      const u = window.smartCore.play(msg.meta.fileId, msg.meta.fileName || msg.meta.fileName || '');
+      return normalizeVirtualUrl(u);
     }
-
     return msg.txt || '';
-  
   };
 
   return (
@@ -428,16 +437,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           <MoreHorizontal size={24} strokeWidth={1.5} />
         </button>
       </header>
-      {/* Debug Logs */}
-      <div className="bg-black/85 text-green-300 text-[10px] p-2 absolute top-[56px] left-0 right-0 z-40 pointer-events-none">
-        <div className="text-green-200/90">
-          SW: ready={String(swReady)} ctl={String(!!navigator.serviceWorker?.controller)} activeChat={String((window as any).state?.activeChat || '')} currentChat={String(chat.id)}
-        </div>
-        {debugLogs.map((l, i) => <div key={i}>{l}</div>)}
-      </div>
-        </div>
-      )}
-
 
       {/* Message List */}
       <div
@@ -489,46 +488,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                   onContextMenu={(e) => e.preventDefault()}
                 >
                   {isImage ? (
-                    mediaSrc ? (
-                      <img
-                        src={mediaSrc}
-                        className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover"
-                        alt="Image"
-                        onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          try {
-                            if (DEBUG_MEDIA) addLog(`[IMG] Err: ${target.src.slice(-20)} ready=${swReady}`);
-                          } catch (_) {}
-
-                          // SW 还没接管：不做无意义重试，等 controllerchange 触发 swReloadToken 后会自动重载
-                          if (!swReady) return;
-
-                          const retry = parseInt(target.dataset.retry || '0', 10);
-                          if (retry >= 3) return;
-                          target.dataset.retry = String(retry + 1);
-
-                          // 强制刷新（加时间戳避免缓存层命中错误结果）
-                          const base = target.src.split('#')[0];
-                          const sep = base.includes('?') ? '&' : '?';
-                          setTimeout(() => {
-                            target.src = `${base}${sep}t=${Date.now()}&k=${retry + 1}`;
-                          }, 800);
-                        }}
-                      />
-                    ) : (
-                      <div className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[80px] min-w-[80px] flex items-center justify-center text-[12px] text-gray-400">
-                        图片加载中...
-                      </div>
-                    )
+                    <SmartImage
+                      src={mediaSrc}
+                      className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover"
+                      alt="Image"
+                      onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
+                    />
                   ) : isVideo ? (
-                    mediaSrc ? (
-                      <VideoMessage src={mediaSrc} fileName={fileName || 'Video'} />
-                    ) : (
-                      <div className="rounded-[6px] border border-gray-200 max-w-[240px] bg-black min-h-[120px] min-w-[160px] flex items-center justify-center text-[12px] text-white/70">
-                        视频加载中...
-                      </div>
-                    )
+                    <VideoMessage src={mediaSrc} fileName={fileName || 'Video'} />
                   ) : isFile ? (
                     <div onClick={() => handleSmartFileDownload(msg)} className="bg-white p-3 rounded-[4px] shadow-sm border border-gray-100 cursor-pointer active:bg-gray-50">
                       <div className="flex items-center gap-2">
