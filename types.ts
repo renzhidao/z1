@@ -6,35 +6,13 @@ export interface User {
   region?: string;
 }
 
-// 对应 core.d.ts 的 SmartFileMeta
-export interface SmartFileMeta {
-  fileId: string;
-  fileName: string;
-  fileSize: number;
-  fileType: string;
-  fileObj?: File; // 本地预览用
-}
-
-export type MessageKind = 'text' | 'image' | 'file' | 'SMART_FILE_UI' | 'sys' | 'video' | 'voice';
-
 export interface Message {
   id: string;
-  text: string;           // UI展示用的文本 (可能是处理过的)
-  txt?: string;           // 核心协议原始文本
-  senderId: string;       // 'me' or user.id
-  target?: string;
-  timestamp: Date;        // 对应 core 的 ts
-  ts?: number;            // 核心原始时间戳
-  
+  text: string;
+  senderId: string; // 'me' or user.id
+  timestamp: Date;
   isSystem?: boolean;
-  kind?: MessageKind;     // 核心类型字段
-  type?: 'text' | 'image' | 'voice' | 'redPacket'; // 旧UI字段(兼容)
-  
-  // 文件/多媒体字段
-  meta?: SmartFileMeta;
-  fileName?: string;
-  fileSize?: number;
-  fileType?: string;
+  type?: 'text' | 'image' | 'voice' | 'redPacket';
 }
 
 export interface Chat {
@@ -44,9 +22,9 @@ export interface Chat {
   timestamp: string; // Display string like "12:46" or "Yesterday"
   unreadCount: number;
   isMuted: boolean;
-  isPinned?: boolean;
-  isService?: boolean;
-  isAi?: boolean;
+  isPinned?: boolean; // New property for pinning functionality
+  isService?: boolean; // For "Service Accounts" or "Subscriptions" style folders
+  isAi?: boolean; // Special flag for the Gemini bot
   messages: Message[];
 }
 

@@ -1,14 +1,13 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface SettingsProps {
   onBack: () => void;
   onNavigateToPersonalInfo?: () => void;
   onCareModeClick?: () => void;
-  onToggleLog?: () => void;
 }
 
-const Settings: React.FC<SettingsProps> = ({ onBack, onNavigateToPersonalInfo, onCareModeClick, onToggleLog }) => {
+const Settings: React.FC<SettingsProps> = ({ onBack, onNavigateToPersonalInfo, onCareModeClick }) => {
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
       {/* Header */}
@@ -60,20 +59,6 @@ const Settings: React.FC<SettingsProps> = ({ onBack, onNavigateToPersonalInfo, o
 
         <div className="bg-white mb-2 border-y border-gray-200/50">
            <SettingsItem label="关于微信" value="版本 8.0.45" />
-           {onToggleLog && (
-               <div 
-                onClick={onToggleLog}
-                className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100 last:border-0 active:bg-[#DEDEDE] cursor-pointer"
-              >
-                 <span className="text-[16px] text-[#191919] flex items-center gap-2">
-                    <Terminal size={16} className="text-gray-500" />
-                    开发者模式 (显示日志)
-                 </span>
-                 <div className="flex items-center gap-2">
-                   <ChevronRight size={16} className="text-gray-400" />
-                 </div>
-              </div>
-           )}
         </div>
 
         <div className="bg-white mb-4 border-y border-gray-200/50">

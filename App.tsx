@@ -22,7 +22,6 @@ import GenderSelect from './components/GenderSelect';
 import ChangeName from './components/ChangeName';
 import Signature from './components/Signature';
 import ChangeCover from './components/ChangeCover';
-import LogConsole from './components/LogConsole';
 import { Tab, Chat, User, ToastState } from './types';
 import { useCoreBridge } from './hooks/useCoreBridge';
 import { User as UserIcon, Box, ShoppingBag, Gamepad, Zap, Smile, CreditCard, Image, Camera, ChevronRight, Search as SearchIcon, Users, Tag, FileText, MessageSquare, Settings as SettingsIcon, Smartphone, ScanLine, Wallet } from 'lucide-react';
@@ -56,9 +55,6 @@ export function App() {
   const [showChangeName, setShowChangeName] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
   const [showChangeCover, setShowChangeCover] = useState(false);
-  
-  // Developer Log
-  const [showLog, setShowLog] = useState(false);
 
   // Call State
   const [callState, setCallState] = useState<{ active: boolean; type: 'voice' | 'video'; user: User | null }>({ active: false, type: 'voice', user: null });
@@ -299,9 +295,6 @@ export function App() {
 
   return (
     <div className="h-full w-full flex flex-col bg-[#EDEDED] overflow-hidden">
-      {/* Log Console Overlay */}
-      {showLog && <LogConsole onClose={() => setShowLog(false)} />}
-
       {/* Main Tab Content */}
       <div className="flex-1 overflow-y-auto no-scrollbar scroll-smooth">
          {currentTab === Tab.CHATS && <Header title={`微信 (${mqttStatus})`} onSearchClick={() => setShowSearch(true)} onMenuAction={handleMenuAction} />}
@@ -368,7 +361,6 @@ export function App() {
              onBack={() => setShowSettings(false)} 
              onNavigateToPersonalInfo={() => setShowPersonalInfo(true)}
              onCareModeClick={() => setShowCareMode(true)}
-             onToggleLog={() => setShowLog(!showLog)}
           />
         </div>
       )}
