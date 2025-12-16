@@ -23,55 +23,12 @@ self.addEventListener('activate', event => {
 });
 
 const streamControllers = new Map();
-// 记录每个虚拟请求的状态，用于日志（不影响业务）
-const streamStates = new Map();
-
-/** SW -> 页面日志桥：把 SW 内部关键路径打点发到页面，再进 LogConsole */
-async function swLogToClientId(clientId, msg, extra) {
-  const payload = { type: 'SW_LOG', ts: Date.now(), msg, extra };
-  try {
-    if (clientId) {
-      const c = await self.clients.get(clientId);
-      if (c) {
-        try { c.postMessage(payload); } catch (_) {}
-        return;
-      }
-    }
-  } catch (_) {}
-
-  // fallback：广播到所有 window（多开时也能看到）
-  try {
-    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    (list || []).forEach(c => { try { c.postMessage(payload); } catch (_) {} });
-  } catch (_) {}
-}
-
-function fireSwLog(event, msg, extra) {
-  try {
-    const clientId = event && event.clientId ? event.clientId : null;
-    if (event && event.waitUntil) event.waitUntil(swLogToClientId(clientId, msg, extra));
-    else swLogToClientId(clientId, msg, extra);
-  } catch (_) {}
-}
-
-function byteLenOfChunk(chunk) {
-  try {
-    if (!chunk) return 0;
-    if (chunk instanceof ArrayBuffer) return chunk.byteLength || 0;
-    if (chunk instanceof Uint8Array) return chunk.byteLength || 0;
-    if (chunk && chunk.buffer instanceof ArrayBuffer) return chunk.byteLength || chunk.length || 0;
-    if (chunk instanceof Blob) return chunk.size || 0;
-    return 0;
-  } catch (_) {
-    return 0;
-  }
-}
 
 // 辅助函数：根据文件名或元数据猜测正确的 Content-Type
 // 解决 audio/mp3 变成了 application/octet-stream 导致无法播放的问题
 function guessMime(fileName, declaredType) {
   if (declaredType && typeof declaredType === 'string' && declaredType.trim() && declaredType !== 'application/octet-stream') {
-    return declaredType;
+      return declaredType;
   }
   const n = (fileName || '').toLowerCase();
 
@@ -126,11 +83,11 @@ function buildVirtualHeaders({ fileName, fileType, total, start, end, hasRange }
 
   headers.set('Content-Type', guessMime(fileName, fileType));
   headers.set('Accept-Ranges', 'bytes');
-  headers.set('Vary', 'Range');
-  headers.set('Cache-Control', 'no-store');
-  headers.set('Pragma', 'no-cache');
+  headers.set('Vary', 'Range');                // PATCH
+  headers.set('Cache-Control', 'no-store');    // PATCH: 虚拟流不要缓存
+  headers.set('Pragma', 'no-cache');           // PATCH: 兼容老内核
 
-  // 不再设置 Content-Disposition（尤其不要带中文 filename）
+  // PATCH: 不再设置 Content-Disposition（尤其不要带中文 filename）
   // headers.set('Content-Disposition', `inline; filename="${fileName}"`);
 
   headers.set('Content-Length', String(len));
@@ -154,29 +111,21 @@ self.addEventListener('message', event => {
   if (!data.requestId) return;
 
   const controller = streamControllers.get(data.requestId);
-  // 允许 META/ERROR 日志即使 controller 已不存在
-  const st = streamStates.get(data.requestId);
+  if (!controller) return;
 
   switch (data.type) {
     case 'STREAM_DATA':
       try {
+        // PATCH: 更健壮地处理 chunk 类型（ArrayBuffer / Uint8Array / Blob）
         const chunk = data.chunk;
         if (!chunk) return;
 
-        const bl = byteLenOfChunk(chunk);
-        if (st) {
-          st.bytes = (st.bytes || 0) + bl;
-          if (!st.firstDataTs) st.firstDataTs = Date.now();
-        }
-
-        if (!controller) return;
-
-        // 更健壮地处理 chunk 类型（ArrayBuffer / Uint8Array / Blob）
         if (chunk instanceof ArrayBuffer) {
           controller.enqueue(new Uint8Array(chunk));
         } else if (chunk instanceof Uint8Array) {
           controller.enqueue(chunk);
         } else if (chunk && chunk.buffer instanceof ArrayBuffer) {
+          // 其它 TypedArray
           controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset || 0, chunk.byteLength || chunk.length || 0));
         } else if (chunk instanceof Blob && chunk.arrayBuffer) {
           chunk.arrayBuffer().then(ab => {
@@ -187,54 +136,13 @@ self.addEventListener('message', event => {
       break;
 
     case 'STREAM_END':
-      try { if (controller) controller.close(); } catch (e) {}
+      try { controller.close(); } catch (e) {}
       streamControllers.delete(data.requestId);
-      if (st) {
-        st.endedTs = Date.now();
-        const dur = (st.endedTs - (st.startedTs || st.endedTs));
-        swLogToClientId(st.clientId, 'VFILE_END', {
-          requestId: data.requestId,
-          fileId: st.fileId,
-          method: st.method,
-          range: st.range || '',
-          bytes: st.bytes || 0,
-          ms: dur
-        });
-      }
-      streamStates.delete(data.requestId);
       break;
 
     case 'STREAM_ERROR':
-      try { if (controller) controller.error(new Error(data.msg)); } catch (e) {}
+      try { controller.error(new Error(data.msg)); } catch (e) {}
       streamControllers.delete(data.requestId);
-      if (st) {
-        swLogToClientId(st.clientId, 'VFILE_STREAM_ERROR', {
-          requestId: data.requestId,
-          fileId: st.fileId,
-          method: st.method,
-          range: st.range || '',
-          msg: data.msg || ''
-        });
-      }
-      streamStates.delete(data.requestId);
-      break;
-
-    case 'STREAM_META':
-      // 不做 controller 操作；但记录日志更利于定位“图片加载失败”
-      if (st) {
-        st.metaTs = Date.now();
-        st.meta = { fileSize: data.fileSize, fileType: data.fileType, start: data.start, end: data.end };
-        swLogToClientId(st.clientId, 'VFILE_META', {
-          requestId: data.requestId,
-          fileId: st.fileId,
-          method: st.method,
-          range: st.range || '',
-          fileType: data.fileType,
-          fileSize: data.fileSize,
-          start: data.start,
-          end: data.end
-        });
-      }
       break;
   }
 });
@@ -244,12 +152,6 @@ self.addEventListener('fetch', event => {
 
   // 1. 拦截虚拟文件请求 (核心逻辑)
   if (url.pathname.includes('/virtual/file/')) {
-    fireSwLog(event, 'VFILE_FETCH', {
-      method: event.request.method,
-      path: url.pathname,
-      range: event.request.headers.get('Range') || '',
-      clientId: event.clientId || ''
-    });
     event.respondWith(handleVirtualStream(event));
     return;
   }
@@ -276,29 +178,12 @@ self.addEventListener('fetch', event => {
   );
 });
 
-// HEAD 请求专用：只拿 STREAM_META 回 headers，然后立刻 CANCEL
+// PATCH: HEAD 请求专用（只拿 STREAM_META 回 headers，然后立刻 CANCEL，避免媒体探测请求被错误走成“有 body 的流”）
 async function handleVirtualHead(event, client, { fileId, fileName, rangeHeader }) {
   const requestId = Math.random().toString(36).slice(2) + Date.now();
 
-  // 记录状态，用于后续 SW message 里打点
-  streamStates.set(requestId, {
-    requestId,
-    clientId: client && client.id,
-    fileId,
-    fileName,
-    method: 'HEAD',
-    range: rangeHeader || '',
-    startedTs: Date.now(),
-    bytes: 0
-  });
-
   // 先发 OPEN
-  try {
-    client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader });
-    swLogToClientId(client.id, 'VFILE_OPEN', { requestId, method: 'HEAD', fileId, range: rangeHeader || '' });
-  } catch (e) {
-    swLogToClientId(client.id, 'VFILE_OPEN_FAIL', { requestId, method: 'HEAD', fileId, err: String(e && e.message || e) });
-  }
+  try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
 
   return new Promise(resolve => {
     const metaHandler = (e) => {
@@ -322,16 +207,11 @@ async function handleVirtualHead(event, client, { fileId, fileName, rangeHeader 
           hasRange
         });
 
+        // HEAD：无 body
         resolve(new Response(null, { status: hasRange ? 206 : 200, headers }));
 
         // 立刻取消，避免 client 继续下载/推数据
-        try {
-          client.postMessage({ type: 'STREAM_CANCEL', requestId });
-          swLogToClientId(client.id, 'VFILE_CANCEL', { requestId, method: 'HEAD', fileId });
-        } catch (_) {}
-
-        // HEAD 结束就清状态（避免堆积）
-        streamStates.delete(requestId);
+        try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
         return;
       }
 
@@ -339,8 +219,6 @@ async function handleVirtualHead(event, client, { fileId, fileName, rangeHeader 
         self.removeEventListener('message', metaHandler);
         resolve(new Response(d.msg || 'File Not Found', { status: 404 }));
         try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
-        swLogToClientId(client.id, 'VFILE_HEAD_ERROR', { requestId, fileId, msg: d.msg || '' });
-        streamStates.delete(requestId);
       }
     };
 
@@ -349,41 +227,26 @@ async function handleVirtualHead(event, client, { fileId, fileName, rangeHeader 
     setTimeout(() => {
       self.removeEventListener('message', metaHandler);
       try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
-      swLogToClientId(client.id, 'VFILE_HEAD_META_TIMEOUT', { requestId, fileId, ms: 8000 });
-      streamStates.delete(requestId);
       resolve(new Response('Gateway Timeout (Metadata Wait, HEAD)', { status: 504 }));
-    }, 8000);
+    }, 8000); // PATCH: HEAD 探测不需要等太久
   });
 }
 
 async function handleVirtualStream(event) {
-  const url = new URL(event.request.url);
-
   // 1. 查找 Client
   const client = await pickBestClient(event);
-  if (!client) {
-    fireSwLog(event, 'VFILE_NO_CLIENT', { clientId: event.clientId || '', path: url.pathname });
-    return new Response('Service Worker: No Client Active', { status: 503 });
-  }
-
-  fireSwLog(event, 'VFILE_PICK_CLIENT', { pickedId: client.id, pickedUrl: client.url || '' });
+  if (!client) return new Response('Service Worker: No Client Active', { status: 503 });
 
   // 2. 解析路径 /virtual/file/{fileId}/{fileName}
-  const pathname = url.pathname;
+  const pathname = new URL(event.request.url).pathname;
   const marker = '/virtual/file/';
   const idx = pathname.indexOf(marker);
-  if (idx === -1) {
-    fireSwLog(event, 'VFILE_BAD_URL', { path: pathname });
-    return new Response('Bad Virtual URL', { status: 400 });
-  }
+  if (idx === -1) return new Response('Bad Virtual URL', { status: 400 });
 
   const tail = pathname.slice(idx + marker.length);
   const segs = tail.split('/').filter(Boolean);
   const fileId = segs[0];
-  if (!fileId) {
-    fireSwLog(event, 'VFILE_MISSING_FILEID', { path: pathname });
-    return new Response('Bad Virtual URL (missing fileId)', { status: 400 });
-  }
+  if (!fileId) return new Response('Bad Virtual URL (missing fileId)', { status: 400 });
 
   let fileName = 'file';
   try { fileName = decodeURIComponent(segs.slice(1).join('/') || 'file'); }
@@ -391,48 +254,23 @@ async function handleVirtualStream(event) {
 
   const rangeHeader = event.request.headers.get('Range');
 
-  // 处理 HEAD
+  // PATCH: 处理 HEAD（媒体元素常见探测行为）
   if (event.request.method === 'HEAD') {
     return handleVirtualHead(event, client, { fileId, fileName, rangeHeader });
   }
 
   const requestId = Math.random().toString(36).slice(2) + Date.now();
 
-  // 建立状态
-  streamStates.set(requestId, {
-    requestId,
-    clientId: client.id,
-    fileId,
-    fileName,
-    method: event.request.method || 'GET',
-    range: rangeHeader || '',
-    startedTs: Date.now(),
-    bytes: 0
-  });
-
-  // 用 bytes stream，媒体/Fetch 管线兼容性更好
+  // PATCH: 用 bytes stream，媒体/Fetch 管线兼容性更好
   const stream = new ReadableStream({
     type: 'bytes',
     start(controller) {
       streamControllers.set(requestId, controller);
-      try {
-        client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader });
-        swLogToClientId(client.id, 'VFILE_OPEN', {
-          requestId,
-          method: event.request.method || 'GET',
-          fileId,
-          fileName,
-          range: rangeHeader || ''
-        });
-      } catch (e) {
-        swLogToClientId(client.id, 'VFILE_OPEN_FAIL', { requestId, fileId, err: String(e && e.message || e) });
-      }
+      try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
     },
     cancel() {
       streamControllers.delete(requestId);
       try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
-      swLogToClientId(client.id, 'VFILE_STREAM_CANCELLED', { requestId, fileId });
-      streamStates.delete(requestId);
     }
   });
 
@@ -465,8 +303,6 @@ async function handleVirtualStream(event) {
       if (d.type === 'STREAM_ERROR') {
         self.removeEventListener('message', metaHandler);
         streamControllers.delete(requestId);
-        swLogToClientId(client.id, 'VFILE_META_ERROR', { requestId, fileId, msg: d.msg || '' });
-        streamStates.delete(requestId);
         resolve(new Response(d.msg || 'File Not Found', { status: 404 }));
         try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
       }
@@ -474,7 +310,7 @@ async function handleVirtualStream(event) {
 
     self.addEventListener('message', metaHandler);
 
-    // 超时要主动 cancel + 结束 controller，避免死流
+    // PATCH: 超时要主动 cancel + 结束 controller，避免死流
     setTimeout(() => {
       self.removeEventListener('message', metaHandler);
 
@@ -483,9 +319,6 @@ async function handleVirtualStream(event) {
         try { ctl.error(new Error('Gateway Timeout (Metadata Wait)')); } catch (e) {}
         streamControllers.delete(requestId);
       }
-
-      swLogToClientId(client.id, 'VFILE_META_TIMEOUT', { requestId, fileId, ms: 15000, range: rangeHeader || '' });
-      streamStates.delete(requestId);
 
       try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
 

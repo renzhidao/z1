@@ -345,6 +345,12 @@ export class TaskManager {
         }
       });
 
+      // ✅ 修复：当 wantQueue 非空但暂时没有可用连接时，原逻辑会“永远不再调度”
+      // 这里每秒尝试一次 dispatch（连接恢复后即可继续请求）
+      if (task.inflight.size === 0 && task.wantQueue.length > 0 && !task.completed) {
+        this.dispatchRequests(task);
+      }
+
       if (task.inflight.size === 0 && task.wantQueue.length === 0 && !task.completed) {
         this.requestNextChunk(task);
       }
