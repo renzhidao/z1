@@ -390,10 +390,6 @@ export function init() {
       } else if (m.kind === CHAT.KIND_IMAGE) {
          content = `<img src="${m.txt}" class="chat-img" style="min-height:50px; background:#222;" onerror="window.handleImageError(this, '普通图片')">`;
          style = 'background:transparent;padding:0';
-      } else if (m.kind === 'voice') {
-         // [修复] 处理语音类型
-         content = `[语音] ${m.txt || '1"'} (react-ui)`;
-         style = 'font-style:italic;color:#aaa;';
       } else {
          content = window.util.escape(m.txt);
       }
