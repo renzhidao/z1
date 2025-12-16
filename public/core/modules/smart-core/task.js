@@ -279,6 +279,20 @@ export class TaskManager {
       // feed SW
       try { this.core.stream && this.core.stream.processSwQueue(task); } catch (_) {}
 
+      // SMALL_FILE_FORCE_NEXT: 小图/小文件常见“只收第一块” -> 直接强推下一块请求（不依赖SW Range 是否已就绪）
+      try {
+        if (!task.completed && task.size > 0 && task.size <= CHUNK_SIZE * 2) {
+          const nextOff = CHUNK_SIZE;
+          if (nextOff < task.size && !task.parts.has(nextOff) && !task.inflight.has(nextOff)) {
+            const idx = task.wantQueue.indexOf(nextOff);
+            if (idx >= 0) task.wantQueue.splice(idx, 1);
+            task.wantQueue.unshift(nextOff);
+            // 立即尝试派发一次
+            this.dispatchRequests(task);
+          }
+        }
+      } catch (_) {}
+
       // feed MSE
       if (this.core.activePlayer && this.core.activePlayer.fileId === fid) {
         try { this.core.activePlayer.appendChunk(safeBody, off); } catch (_) {}
@@ -352,7 +366,9 @@ export class TaskManager {
         packet.set(headerBytes, 1);
         packet.set(new Uint8Array(buffer), 1 + headerBytes.byteLength);
         const conn = window.state && window.state.conns && window.state.conns[fromId];
-        if (conn && conn.open) {
+        const dc = conn && (conn.dataChannel || conn._dc);
+        const isOpen = !!(conn && (conn.open || (dc && dc.readyState === 'open')));
+        if (isOpen) {
           try { log(`📤 SEND_CHUNK to=${fromId} file=${pkt.fileId} off=${offset} bytes=${packet.byteLength}`); } catch (_) {}
           this.sendSafe(conn, packet);
         } else {

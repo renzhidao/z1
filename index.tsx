@@ -7,7 +7,27 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-const root = ReactDOM.createRoot(rootElement);
+const root = 
+// ---- SW bootstrap (v2025-12-16-fix5) ----
+try {
+  if ('serviceWorker' in navigator) {
+    const __key = 'p1_sw_reloaded_once';
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      try {
+        if (!sessionStorage.getItem(__key)) {
+          sessionStorage.setItem(__key, '1');
+          location.reload();
+        }
+      } catch (_) {}
+    });
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+} catch (_) {}
+// ---- /SW bootstrap ----
+
+ReactDOM.createRoot(rootElement);
 
 function mount() {
   root.render(

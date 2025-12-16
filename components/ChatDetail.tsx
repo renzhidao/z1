@@ -255,7 +255,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
     if (!url) return url;
     if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http'))
       return url;
-    if (url.startsWith('./virtual/file/')) {
+    if (url.startsWith('/virtual/file/')) {
       return getCoreBase() + url.slice(2);
     }
     if (url.startsWith('/virtual/file/')) {

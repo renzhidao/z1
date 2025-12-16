@@ -30,7 +30,7 @@ export const NET_PARAMS = {
 
 export const CHAT = {
   PUBLIC_ID: 'all',         
-  PUBLIC_NAME: '公共频道 · v2025-12-16-fix3',   
+  PUBLIC_NAME: '公共频道 · v2025-12-16-fix7',   
   KIND_TEXT: 'text',        
   KIND_IMAGE: 'image',      
   KIND_FILE: 'file',        
