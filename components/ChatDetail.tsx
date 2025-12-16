@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
-import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, X } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, X, FileText } from 'lucide-react';
 import CallOverlay from './CallOverlay';
+import LogConsole from './LogConsole';
 
 interface ChatDetailProps {
   chat: Chat;
@@ -96,6 +97,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const [showCallMenu, setShowCallMenu] = useState(false);
   const [activeCall, setActiveCall] = useState<'voice' | 'video' | null>(null);
   const [msgContextMenu, setMsgContextMenu] = useState<{ visible: boolean; x: number; y: number; message: Message | null; }>({ visible: false, x: 0, y: 0, message: null });
+  
+  // 日志控制
+  const [showLog, setShowLog] = useState(false);
 
   // 图片预览
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -374,6 +378,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         </div>
       )}
 
+      {/* 日志控制台 */}
+      {showLog && <LogConsole onClose={() => setShowLog(false)} />}
+
       {/* Call Overlay */}
       {activeCall && (
         <CallOverlay
@@ -394,9 +401,16 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         <span className="text-[17px] font-medium text-[#191919] absolute left-1/2 -translate-x-1/2">
           {chat.user.name}
         </span>
-        <button onClick={onUserClick} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60">
-          <MoreHorizontal size={24} strokeWidth={1.5} />
-        </button>
+        <div className="flex items-center">
+            {/* 新增：日志按钮 */}
+            <button onClick={() => setShowLog(true)} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60 mr-1" title="打开日志">
+              <FileText size={24} strokeWidth={1.5} />
+            </button>
+            
+            <button onClick={onUserClick} className="p-2 text-[#191919] hover:bg-gray-200/50 rounded-full active:opacity-60">
+              <MoreHorizontal size={24} strokeWidth={1.5} />
+            </button>
+        </div>
       </header>
 
       {/* Message List */}
@@ -456,9 +470,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                       onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
+                        // 错误重试逻辑：增加日志输出
                         if (!target.dataset.retried) {
                           target.dataset.retried = 'true';
+                          console.warn(`Image Load Fail (Retry 1): ${mediaSrc}`);
                           setTimeout(() => { target.src = mediaSrc; }, 1000);
+                        } else {
+                           console.error(`Image Load Fail (Final): ${mediaSrc}`);
                         }
                       }}
                     />
