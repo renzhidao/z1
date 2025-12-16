@@ -77,7 +77,8 @@ class SmartCore {
       senderId: window.state && window.state.myId,
       n: window.state && window.state.myName,
       kind,
-      txt: txt || `[文件] ${file.name}`,
+      // 修复：如果是 voice，保留 txt (时长)，否则用文件名
+      txt: txt || (kind === 'voice' ? null : `[文件] ${file.name}`),
       meta: metaData,
       target
     };
@@ -158,19 +159,31 @@ class SmartCore {
     const fileType = meta.fileType || '';
     const fileSize = meta.fileSize || 0;
 
+    // 1. 本地 Blob 优先 (最快，最稳)
     if (window.virtualFiles.has(fileId)) {
       const url = URL.createObjectURL(window.virtualFiles.get(fileId));
-      log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
+      // log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
       return url;
     }
+
+    // 2. 远程文件：确保任务已启动
+    // 如果没有连接 Peer，尝试主动连接
+    const conns = window.state && window.state.conns;
+    if (meta.senderId && window.p2p && conns && (!conns[meta.senderId] || !conns[meta.senderId].open)) {
+      log(` play() 触发主动连接 -> ${meta.senderId}`);
+      try {
+        window.p2p.connectTo(meta.senderId);
+      } catch (_) {}
+    }
+
+    try { this.tasks.startDownloadTask(fileId); } catch (_) {}
 
     const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
     const isVideo = /\.(mp4|mov|m4v)$/i.test(fileName) || /video\//.test(fileType);
 
+    // 3. MSE 降级模式 (针对无 SW 环境或特定视频)
     if (!hasSW && isVideo) {
       log(`🎥 播放路径 = MSE + MP4Box (无SW降级) | ${fileName}`);
-
-      this.tasks.startDownloadTask(fileId);
 
       if (this.activePlayer) {
         try { this.activePlayer.destroy(); } catch (_) {}
@@ -195,7 +208,8 @@ class SmartCore {
       return this.activePlayer.getUrl();
     }
 
-    log(`🎥 播放路径 = SW直链 | ${fileName}`);
+    // 4. 标准 SW 直链
+    // log(`🎥 播放路径 = SW直链 | ${fileName}`);
     const vUrl = `./virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
 
     if (isVideo) {
@@ -319,13 +333,19 @@ class SmartCore {
       this._origProcIncoming = window.protocol.processIncoming;
 
       window.protocol.sendMsg = function (txt, kind, meta) {
-        if ((kind === CHAT.KIND_FILE || kind === CHAT.KIND_IMAGE) && meta && meta.fileObj) {
+        // [修复] 增加对 'voice' 的拦截，并确保 'txt' (时长) 能透传
+        if ((kind === CHAT.KIND_FILE || kind === CHAT.KIND_IMAGE || kind === 'voice') && meta && meta.fileObj) {
           const file = meta.fileObj;
           const target = (window.state && window.state.activeChat && window.state.activeChat !== CHAT.PUBLIC_ID)
             ? window.state.activeChat
             : CHAT.PUBLIC_ID;
 
-          const { msg } = self.sendFile(file, target, { showLocal: false });
+          // [修复] 透传 kind 和 txt 参数
+          const { msg } = self.sendFile(file, target, {
+            showLocal: false,
+            kind: kind,
+            txt: txt // 语音时长/文本描述会在这里透传
+          });
 
           // 本地立即显示（复用原流程）
           try { window.protocol.processIncoming(msg); } catch (_) {}
