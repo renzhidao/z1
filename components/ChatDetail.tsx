@@ -106,7 +106,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   // SW 是否已接管当前页面：图片/文件流必须靠 SW 拦截 /virtual/file/*
   const [swReady, setSwReady] = useState<boolean>(!!(navigator.serviceWorker && navigator.serviceWorker.controller));
   const [swReloadToken, setSwReloadToken] = useState<number>(0);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [debugLogs, setDebugLogs] = useState<string[]>(['DEBUG ON']);
   const addLog = (msg: string) => setDebugLogs(prev => [msg, ...prev].slice(0, 5)); // 只留最新5条
 
 
@@ -160,6 +160,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         }
       }
     } catch (_) {}
+  }, [chat.id]);
+
+  useEffect(() => {
+    try { if (DEBUG_MEDIA) addLog(`[DBG] mount chat=${String(chat.id)}`); } catch (_) {}
   }, [chat.id]);
 
   // --- 核心逻辑注入：数据加载与监听 ---
@@ -425,9 +429,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
         </button>
       </header>
       {/* Debug Logs */}
-      {debugLogs.length > 0 && (
-        <div className="bg-black/80 text-green-400 text-[10px] p-2 absolute top-[56px] left-0 right-0 z-40 pointer-events-none">
-          {debugLogs.map((l, i) => <div key={i}>{l}</div>)}
+      <div className="bg-black/85 text-green-300 text-[10px] p-2 absolute top-[56px] left-0 right-0 z-40 pointer-events-none">
+        <div className="text-green-200/90">
+          SW: ready={String(swReady)} ctl={String(!!navigator.serviceWorker?.controller)} activeChat={String((window as any).state?.activeChat || '')} currentChat={String(chat.id)}
+        </div>
+        {debugLogs.map((l, i) => <div key={i}>{l}</div>)}
+      </div>
         </div>
       )}
 
