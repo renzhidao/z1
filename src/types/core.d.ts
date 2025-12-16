@@ -10,7 +10,7 @@
 // 1. 核心数据模型 (Data Models)
 // ==========================================
 
-export type MessageType = 'text' | 'image' | 'file' | 'SMART_FILE_UI' | 'sys';
+export type MessageType = 'text' | 'image' | 'file' | 'SMART_FILE_UI' | 'sys' | 'video' | 'voice';
 
 export interface Message {
   id: string;           // 消息唯一ID (UUID)
@@ -34,6 +34,7 @@ export interface SmartFileMeta {
   fileName: string;
   fileSize: number;
   fileType: string;
+  fileObj?: File; // 本地预览用
 }
 
 export interface Contact {
@@ -124,7 +125,7 @@ export class P2PService extends EventEmitter {
   on(event: 'disconnect', listener: (peerId: string) => void): this;
   
   /** 当连接列表发生变化时触发 (UI 应刷新联系人列表) */
-  listener: () => void): this;
+  on(event: 'peers', listener: () => void): this;
   
   /** 错误日志事件 */
   on(event: 'log', listener: (level: string, msg: string) => void): this;
@@ -204,6 +205,9 @@ export class SmartCore {
    * 下载文件到本地
    */
   download(fileId: string, fileName?: string): void;
+  
+  /** 初始化文件元数据 (防止刷新后丢失映射) */
+  initMeta(): Promise<void>;
 }
 
 /**

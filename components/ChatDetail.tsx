@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
-import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, X } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, X, AlertCircle } from 'lucide-react';
 import CallOverlay from './CallOverlay';
 
 interface ChatDetailProps {
@@ -71,7 +71,7 @@ const VoiceMessage: React.FC<{ duration: number, isMe: boolean, isPlaying: boole
 // --- 辅助组件：视频消息 ---
 const VideoMessage: React.FC<{ src: string, fileName: string }> = ({ src, fileName }) => (
     <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
-        <video src={src} controls className="w-full max-h-[300px]" />
+        <video src={src} controls className="w-full max-h-[300px]" onError={(e) => console.error("Video load error", e)} />
         <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
             视频
         </div>
@@ -247,6 +247,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       if (window.smartCore && window.protocol) {
           const { msg } = window.smartCore.sendFile(file, chat.id, { kind });
           if (kind === 'video') msg.meta = { ...msg.meta, fileType: file.type };
+          else if (kind === 'image') msg.meta = { ...msg.meta, fileType: file.type }; // 明确标记图片类型
+          
           // 发送时不手动添加，依赖 core-ui-update，同时附带 fileObj 用于本地快速回显
           window.protocol.sendMsg(null, kind as any, { ...msg.meta, fileObj: file });
       }
@@ -289,7 +291,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       { icon: <Smartphone size={24} />, label: '文件', action: () => handleFileAction('file') },
   ];
 
-  // 核心修改：借鉴旧版 smartCore.play 逻辑
+  // 核心修改：借鉴旧版 smartCore.play 逻辑 + 错误处理
   const getMediaSrc = (msg: Message) => {
       // 1. 发送方：本地有 fileObj (秒开)
       if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
@@ -307,7 +309,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
       <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
 
-      {/* 图片预览覆盖层 (借鉴旧版 .img-preview-overlay) */}
+      {/* 图片预览覆盖层 */}
       {previewUrl && (
         <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center animate-in fade-in duration-200" onClick={() => setPreviewUrl(null)}>
             <img src={previewUrl} className="max-w-full max-h-full object-contain" alt="Preview" />
@@ -355,9 +357,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           const isContextActive = msgContextMenu.visible && msgContextMenu.message?.id === msg.id;
           const bubbleColorHex = isMe ? (isContextActive ? '#89D960' : '#95EC69') : (isContextActive ? '#F2F2F2' : '#FFFFFF');
           
-          const isImage = msg.kind === 'image';
-          const isVideo = msg.kind === 'video' || (msg.meta?.fileType && msg.meta.fileType.startsWith('video/'));
-          const isFile = msg.kind === 'SMART_FILE_UI' && !isVideo;
+          // 核心修改：精准分类逻辑，防止多卡片 (图片/视频不被识别为 File)
+          const isVideo = msg.kind === 'video' || (msg.kind === 'SMART_FILE_UI' && msg.meta?.fileType?.startsWith('video/'));
+          const isImage = !isVideo && (msg.kind === 'image' || (msg.kind === 'SMART_FILE_UI' && msg.meta?.fileType?.startsWith('image/')));
+          const isFile = msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage;
           const isVoice = msg.kind === 'voice';
 
           const mediaSrc = (isImage || isVideo) ? getMediaSrc(msg) : '';
@@ -387,12 +390,22 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                   onContextMenu={(e) => e.preventDefault()}
                 >
                    {isImage ? (
-                       <img 
-                          src={mediaSrc}
-                          className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover" 
-                          alt="Image" 
-                          onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
-                       />
+                       <div className="relative">
+                           <img 
+                              src={mediaSrc}
+                              className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover" 
+                              alt="Image"
+                              onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
+                              onError={(e) => {
+                                  // 图片加载失败处理：尝试重试或显示裂图提示
+                                  const target = e.target as HTMLImageElement;
+                                  if (!target.dataset.retried) {
+                                      target.dataset.retried = "true";
+                                      setTimeout(() => target.src = mediaSrc, 1000); // 简单的1秒重试
+                                  }
+                              }}
+                           />
+                       </div>
                    ) : isVideo ? (
                        <VideoMessage 
                           src={mediaSrc}
