@@ -106,6 +106,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   // SW 是否已接管当前页面：图片/文件流必须靠 SW 拦截 /virtual/file/*
   const [swReady, setSwReady] = useState<boolean>(!!(navigator.serviceWorker && navigator.serviceWorker.controller));
   const [swReloadToken, setSwReloadToken] = useState<number>(0);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const addLog = (msg: string) => setDebugLogs(prev => [msg, ...prev].slice(0, 5)); // 只留最新5条
+
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -366,7 +369,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
 
       // SW 未接管时，先不发起虚拟流请求，避免 404 裂图；等 swReady=true 后再加载
       if (isVirtual && !swReady) {
-        try { if (DEBUG_MEDIA) console.warn('[MEDIA] wait SW controller for image/video', { id: msg.id, fileId: msg.meta?.fileId, url: u0 }); } catch (_) {}
+        try { if (DEBUG_MEDIA) addLog(`[MEDIA] Wait SW: ${u0.slice(-20)}`); } catch (_) {}
         return '';
       }
 
@@ -421,6 +424,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           <MoreHorizontal size={24} strokeWidth={1.5} />
         </button>
       </header>
+      {/* Debug Logs */}
+      {debugLogs.length > 0 && (
+        <div className="bg-black/80 text-green-400 text-[10px] p-2 absolute top-[56px] left-0 right-0 z-40 pointer-events-none">
+          {debugLogs.map((l, i) => <div key={i}>{l}</div>)}
+        </div>
+      )}
+
 
       {/* Message List */}
       <div
@@ -481,13 +491,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           try {
-                            if (DEBUG_MEDIA) console.warn('[IMG] onError', {
-                              id: msg.id,
-                              fileId: msg.meta?.fileId,
-                              src: target.src,
-                              swReady,
-                              controller: !!navigator.serviceWorker?.controller
-                            });
+                            if (DEBUG_MEDIA) addLog(`[IMG] Err: ${target.src.slice(-20)} ready=${swReady}`);
                           } catch (_) {}
 
                           // SW 还没接管：不做无意义重试，等 controllerchange 触发 swReloadToken 后会自动重载
