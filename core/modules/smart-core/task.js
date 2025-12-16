@@ -37,14 +37,17 @@ export class TaskManager {
       size: meta.fileSize,
       fileType: fixedType,
       isVideo: /\.(mp4|mov|m4v)$/i.test((meta.fileName || '')) || /^video\//.test((fixedType || '')) || /mp4|quicktime/.test((fixedType || '')),
+      isImage: /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test((meta.fileName || '')) || /^image\//.test((fixedType || '')),
 
       parts: new Map(),
       swRequests: new Map(),
+      modePerOffset: new Map(),
 
       // peers to try (do not require an existing conn here; pickConn will connect if needed)
       peers: [],
       peerIndex: 0,
       _lastConnectTry: 0,
+      _lastNoConnLog: 0,
 
       nextOffset: 0,
       lastWanted: -CHUNK_SIZE,
@@ -52,7 +55,8 @@ export class TaskManager {
       inflight: new Set(),
       inflightTimestamps: new Map(),
 
-      completed: false
+      completed: false,
+      lastRecvTs: Date.now()
     };
 
     // Prefer sender as primary peer even if conn not created yet
@@ -75,6 +79,13 @@ export class TaskManager {
     // head first
     if (!task.wantQueue.includes(0)) task.wantQueue.unshift(0);
 
+    // [稳定性修复] 视频/流播放：先拉取前几块，避免只拿到 off=0 后被尾部探测挤占导致卡住
+    const headPrefetchCount = task.isImage ? Math.max(6, PARALLEL * 3) : Math.max(4, PARALLEL * 2);
+    for (let i = 1; i <= headPrefetchCount; i++) {
+      const off = i * CHUNK_SIZE;
+      if (off < task.size && !task.wantQueue.includes(off)) task.wantQueue.push(off);
+    }
+
     // tail probe only for video
     if (task.isVideo && task.size > CHUNK_SIZE) {
       const lastChunk = Math.floor((task.size - 1) / CHUNK_SIZE) * CHUNK_SIZE;
@@ -90,19 +101,42 @@ export class TaskManager {
   requestNextChunk(task) {
     if (task.completed) return;
 
-    const desired = PARALLEL;
+    const desired = task.isImage ? Math.max(PARALLEL, 4) : PARALLEL;
+    // SW prefetch (高优先级：即使 wantQueue 已很长，也要把当前播放/下载所需块顶到最前，避免“只拿到 off=0 就卡住”)
+    if (task.swRequests && task.swRequests.size > 0) {
+      try {
+        const need = [];
+        task.swRequests.forEach(req => {
+          let cursor = Math.floor(req.current / CHUNK_SIZE) * CHUNK_SIZE;
+          const limit = Math.min(task.size, cursor + PREFETCH_AHEAD);
+          let count = 0;
+          const maxCount = Math.max(desired * 2, 8);
+          while (cursor < limit && cursor < task.size && count < maxCount) {
+            need.push(cursor);
+            cursor += CHUNK_SIZE;
+            count++;
+          }
+        });
 
-    // SW prefetch
-    task.swRequests.forEach(req => {
-      let cursor = Math.floor(req.current / CHUNK_SIZE) * CHUNK_SIZE;
-      const limit = cursor + PREFETCH_AHEAD;
-      while (task.wantQueue.length < desired && cursor < limit && cursor < task.size) {
-        if (!task.parts.has(cursor) && !task.inflight.has(cursor) && !task.wantQueue.includes(cursor)) {
-          task.wantQueue.push(cursor);
+        // de-dup + sort asc
+        const uniq = Array.from(new Set(need)).sort((a, b) => a - b);
+
+        // put required offsets to the FRONT (keep asc order)
+        for (let i = uniq.length - 1; i >= 0; i--) {
+          const off = uniq[i];
+          if (task.parts.has(off) || task.inflight.has(off)) continue;
+          const idx = task.wantQueue.indexOf(off);
+          if (idx >= 0) task.wantQueue.splice(idx, 1);
+          task.wantQueue.unshift(off);
         }
-        cursor += CHUNK_SIZE;
-      }
-    });
+
+        // prevent unbounded growth (keep front-priority items)
+        const maxQueue = Math.max(desired * 12, 120);
+        if (task.wantQueue.length > maxQueue) {
+          task.wantQueue.length = maxQueue;
+        }
+      } catch (_) {}
+    }
 
     // sequential
     while (task.wantQueue.length < desired) {
@@ -127,22 +161,42 @@ export class TaskManager {
   }
 
   dispatchRequests(task) {
-    // non-video must get head chunk first
+    // non-video: 如果正在被 SW Range 流式读取，则必须尊重 Range 优先级（不要强制先拿 off=0）
     if (!task.isVideo && !task.parts.has(0)) {
-      if (task.inflight.size > 0) return;
-      task.wantQueue = [0];
+      const hasSw = task.swRequests && task.swRequests.size > 0;
+      if (!hasSw) {
+        if (task.inflight.size > 0) return;
+        task.wantQueue = [0];
+      }
     }
 
     while (task.inflight.size < PARALLEL && task.wantQueue.length > 0) {
       const off = task.wantQueue.shift();
       const conn = this.pickConn(task);
-      if (!conn) { task.wantQueue.unshift(off); break; }
+      if (!conn) {
+        try {
+          const now = Date.now();
+          if (!task._lastNoConnLog || (now - task._lastNoConnLog) > 1500) {
+            task._lastNoConnLog = now;
+            log(`🔌 NO_CONN file=${task.fileId} wantOff=${off} peers=${(task.peers||[]).length} inflight=${task.inflight.size} q=${task.wantQueue.length}`);
+          }
+        } catch (_) {}
+        task.wantQueue.unshift(off);
+        break;
+      }
 
       try {
         const offNum = toNum(off);
         if (!Number.isFinite(offNum) || offNum < 0) continue;
 
-        conn.send({ t: 'SMART_GET', fileId: task.fileId, offset: offNum, size: CHUNK_SIZE, reqId: task.fileId });
+        try {
+          const pid = conn && (conn._peerId || conn.peerId || conn.id || conn._id);
+          log(`➡️ GET file=${task.fileId} off=${offNum} size=${CHUNK_SIZE} -> ${pid || 'peer'} inflight=${task.inflight.size + 1}/${PARALLEL} q=${task.wantQueue.length}`);
+        } catch (_) {}
+        const mode = (task.modePerOffset && task.modePerOffset.get(offNum)) || 'GET';
+        const typ = (mode == 'CHUNK') ? 'SMART_GET_CHUNK' : 'SMART_GET';
+        const myId = (window.state && window.state.myId) || null;
+        conn.send({ t: typ, fileId: task.fileId, offset: offNum, size: CHUNK_SIZE, reqId: task.fileId, from: myId });
         task.inflight.add(offNum);
         task.inflightTimestamps.set(offNum, Date.now());
         statBump('req');
@@ -173,6 +227,7 @@ export class TaskManager {
         const pid = task.peers[idx];
         const c = conns[pid];
         if (isConnOpen(c)) {
+          try { c._peerId = pid; } catch (_) {}
           task.peerIndex = (idx + 1) % task.peers.length;
           return c;
         }
@@ -225,12 +280,41 @@ export class TaskManager {
         task.parts.set(off, safeBody);
         log(`RECV ← off=${off} size=${safeBody.byteLength}`);
         statBump('recv');
+        try { task.lastRecvTs = Date.now(); } catch (_) {}
       }
 
       // feed SW
       try { this.core.stream && this.core.stream.processSwQueue(task); } catch (_) {}
 
+      // SMALL_FILE_FORCE_NEXT: 小图/小文件常见“只收第一块” -> 直接强推下一块请求（不依赖SW Range 是否已就绪）
+      try {
+        if (!task.completed && task.size > 0 && task.size <= CHUNK_SIZE * 2) {
+          const nextOff = CHUNK_SIZE;
+          if (nextOff < task.size && !task.parts.has(nextOff) && !task.inflight.has(nextOff)) {
+            const idx = task.wantQueue.indexOf(nextOff);
+            if (idx >= 0) task.wantQueue.splice(idx, 1);
+            task.wantQueue.unshift(nextOff);
+            // 立即尝试派发一次
+            this.dispatchRequests(task);
+          }
+        }
+      } catch (_) {}
+
       // feed MSE
+      if (task.isImage && off === 0 && !task.completed) {
+        try {
+          for (let i = 8; i >= 1; i--) {
+            const nOff = i * CHUNK_SIZE;
+            if (nOff < task.size && !task.parts.has(nOff) && !task.inflight.has(nOff)) {
+              const idx = task.wantQueue.indexOf(nOff);
+              if (idx >= 0) task.wantQueue.splice(idx, 1);
+              task.wantQueue.unshift(nOff);
+            }
+          }
+          this.dispatchRequests(task);
+        } catch (_) {}
+      }
+
       if (this.core.activePlayer && this.core.activePlayer.fileId === fid) {
         try { this.core.activePlayer.appendChunk(safeBody, off); } catch (_) {}
       }
@@ -279,12 +363,18 @@ export class TaskManager {
     const file = window.virtualFiles.get(pkt.fileId);
     if (!file) return;
 
-    const offset = toNum(pkt.offset);
+    let offset = toNum(pkt.offset);
+    if (!Number.isFinite(offset)) offset = toNum(pkt.off);
+    if (!Number.isFinite(offset)) offset = toNum(pkt.o);
     let size = toNum(pkt.size);
+    if (!Number.isFinite(size)) size = toNum(pkt.len);
     if (!Number.isFinite(offset) || offset < 0) return;
     if (!Number.isFinite(size) || size <= 0) size = CHUNK_SIZE;
     if (offset >= file.size) return;
     size = Math.min(size, file.size - offset);
+
+
+    try { log(`📨 GET_RX from=${fromId} file=${pkt.fileId} off=${offset} size=${size}`); } catch (_) {}
 
     const reader = new FileReader();
 
@@ -299,9 +389,35 @@ export class TaskManager {
         packet[0] = headerBytes.byteLength;
         packet.set(headerBytes, 1);
         packet.set(new Uint8Array(buffer), 1 + headerBytes.byteLength);
+        const conns = window.state && window.state.conns;
+        let conn = null;
+        const isOpen = (c) => {
+          try {
+            if (!c) return false;
+            if (c.open) return true;
+            const dc = c.dataChannel || c._dc;
+            return !!(dc && dc.readyState === 'open');
+          } catch (_) { return false; }
+        };
 
-        const conn = window.state && window.state.conns && window.state.conns[fromId];
-        if (conn && conn.open) this.sendSafe(conn, packet);
+        try {
+          if (conns) {
+            if (fromId && conns[fromId]) conn = conns[fromId];
+            if (!isOpen(conn) && pkt && pkt.from && conns[pkt.from]) conn = conns[pkt.from];
+            if (!isOpen(conn)) {
+              conn = null;
+              for (const k in conns) { if (isOpen(conns[k])) { conn = conns[k]; break; } }
+            }
+          }
+        } catch (_) {}
+
+        if (isOpen(conn)) {
+          try { log(`📤 SEND_CHUNK to=${fromId||pkt.from||'peer'} file=${pkt.fileId} off=${offset} bytes=${packet.byteLength}`); } catch (_) {}
+          this.sendSafe(conn, packet);
+        } else {
+          try { log(`🔌 SEND_NO_CONN to=${fromId||pkt.from||'peer'} file=${pkt.fileId} off=${offset}`); } catch (_) {}
+        }
+
       } catch (e) {
         log('❌ 发送组包异常: ' + e);
       }
@@ -375,8 +491,9 @@ export class TaskManager {
         if (now - ts > 3000) {
           task.inflight.delete(offset);
           task.inflightTimestamps.delete(offset);
+          task.modePerOffset && task.modePerOffset.set(offset, 'CHUNK');
           task.wantQueue.unshift(offset);
-          log(`⏱️ 超时重试 off=${offset}`);
+          log(`⏱️ 超时重试 off=${offset} -> 切换为 SMART_GET_CHUNK`);
         }
       });
 

@@ -1,6 +1,6 @@
 // ServiceWorker virtual stream support
 
-import { CHUNK_SIZE } from './config.js';
+import { CHUNK_SIZE, PREFETCH_AHEAD } from './config.js';
 import { log } from './logger.js';
 
 export class StreamManager {
@@ -59,7 +59,7 @@ export class StreamManager {
     if (end >= task.size) end = task.size - 1;
     if (end < start) end = start;
 
-    log(`📡 SW OPEN ${requestId}: range=${start}-${end} (${(end - start + 1)} bytes)`);
+    log(`📡 SW OPEN ${requestId}: file=${fileId} hdr=${range || ''} -> ${start}-${end} (${(end - start + 1)} bytes)`);
 
     try {
       source.postMessage({
@@ -77,6 +77,10 @@ export class StreamManager {
 
     const reqChunkIndex = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
 
+    try {
+      log(`🧷 SW REQ ${requestId}: cur=${start} end=${end} reqChunk=${reqChunkIndex} inflight=${task.inflight.size} q=${task.wantQueue.length}`);
+    } catch (_) {}
+
     // small file prefetch / seek reset
     if (task.size < 2 * 1024 * 1024) {
       for (let off = Math.floor((task.size - 1) / CHUNK_SIZE) * CHUNK_SIZE; off >= 0; off -= CHUNK_SIZE) {
@@ -93,6 +97,30 @@ export class StreamManager {
       task.lastWanted = reqChunkIndex - CHUNK_SIZE;
     }
 
+    // [稳定性修复] 把当前 Range 所在 chunk 置顶，避免队列被其它探测/预取挤占导致卡住
+    try {
+      const must = [reqChunkIndex, reqChunkIndex + CHUNK_SIZE, reqChunkIndex + 2 * CHUNK_SIZE];
+      for (let i = must.length - 1; i >= 0; i--) {
+        const off = must[i];
+        if (off < 0 || off >= task.size) continue;
+        if (task.parts.has(off) || task.inflight.has(off)) continue;
+        const idx = task.wantQueue.indexOf(off);
+        if (idx >= 0) task.wantQueue.splice(idx, 1);
+        task.wantQueue.unshift(off);
+      }
+    } catch (_) {}
+
+    // 图片：强制将调度对齐至当前 Range 起点，避免被其它预取挤占
+    try {
+      if (task.isImage) {
+        log(`🖼️ SW Img Align -> ${reqChunkIndex}`);
+        task.nextOffset = reqChunkIndex;
+        // 保留近端优先区间
+        const maxKeep = Math.max(PREFETCH_AHEAD / CHUNK_SIZE, 32);
+        task.wantQueue = task.wantQueue.filter(off => (off >= reqChunkIndex && off < reqChunkIndex + PREFETCH_AHEAD)).slice(0, maxKeep);
+      }
+    } catch (_) {}
+
     this.processSwQueue(task);
     this.core.tasks.requestNextChunk(task);
   }
@@ -101,10 +129,14 @@ export class StreamManager {
     const { requestId } = data || {};
     if (!requestId) return;
 
+    let hit = 0;
     this.core.tasks.activeTasks.forEach(t => {
+      try { if (t.swRequests && t.swRequests.has(requestId)) hit++; } catch (_) {}
       t.swRequests.delete(requestId);
       if (t.completed) this.core.tasks.cleanupTask(t.fileId);
     });
+
+    try { log(`🛑 SW CANCEL ${requestId} hitTasks=${hit}`); } catch (_) {}
   }
 
   processSwQueue(task) {
@@ -144,7 +176,20 @@ export class StreamManager {
             break;
           }
         } else {
-          // log(`SW ⏳ WAIT chunk @${chunkOffset} (req.current=${req.current})`);
+          // 缺块：把当前 chunk 顶到最高优先级，并尝试立刻发起请求（避免只等下次调度）
+          try {
+            log(`⏳ SW WAIT ${reqId}: needChunk=${chunkOffset} cur=${req.current} end=${req.end} inflight=${task.inflight.has(chunkOffset)} q=${task.wantQueue.length}`);
+          } catch (_) {}
+          try {
+            if (!task.parts.has(chunkOffset) && !task.inflight.has(chunkOffset)) {
+              const idx = task.wantQueue.indexOf(chunkOffset);
+              if (idx >= 0) task.wantQueue.splice(idx, 1);
+              task.wantQueue.unshift(chunkOffset);
+            }
+            if (this.core && this.core.tasks && typeof this.core.tasks.dispatchRequests === 'function') {
+              this.core.tasks.dispatchRequests(task);
+            }
+          } catch (_) {}
           break;
         }
       }

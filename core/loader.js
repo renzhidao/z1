@@ -8,7 +8,7 @@ function log(msg, type='ok') {
 // 模块加载列表
 const FALLBACK_MODULES = ["monitor", "constants", "utils", "state", "db", "protocol", "smart-core", "p2p", "hub", "mqtt", "ui-render", "ui-events"];
 
-// === 关键修复：确保 SW 先注册并接管当前页面（否则 /virtual/file/ 不会触发 STREAM_OPEN）===
+// === 关键修复：确保 SW 先注册并接管当前页面（否则 ./virtual/file/ 不会触发 STREAM_OPEN）===
 async function ensureServiceWorkerControl() {
     if (!('serviceWorker' in navigator)) return true;
 
