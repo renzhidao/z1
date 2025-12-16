@@ -263,38 +263,41 @@ export function init() {
       const container = document.getElementById(`media-box-${msgId}`);
       if (!container || !window.smartCore) return;
 
-      const streamUrl = window.smartCore.play(fileId, fileName);
+      // 注意：不点击不会执行到这里，因此不会下载
+      const baseUrl = window.smartCore.play(fileId, fileName);
 
-      // 避免文件名里包含引号导致 inline handler 断裂
       const rawName = String(fileName || 'file');
-      const jsName = rawName.replace(/\/g, '\\').replace(/'/g, "\'");
       const safeName = window.util.escape(rawName);
+      const jsName = rawName.replace(/\/g, '\\').replace(/'/g, "\'");
 
-      // 开关：默认关闭。开启后视频第一次点击只“出封面/首帧”（尽量少拉取），再点击才真正播放
-      const twoTap = !!(window.smartCore && window.smartCore.flags && window.smartCore.flags.videoTwoTapPlay);
+      const segBytes = (window.smartCore.flags && Number(window.smartCore.flags.videoSegBytes)) || (8 * 1024 * 1024);
+      const streamUrl = baseUrl + (baseUrl.includes('?') ? '&' : '?') + `p1_seg=${segBytes}`;
 
       if (type === 'video') {
         const vidId = `p1_vid_${msgId}`;
-        const autoplayAttr = twoTap ? '' : 'autoplay';
-        const preloadAttr = twoTap ? 'metadata' : 'auto';
-        const onMeta = twoTap ? `onloadedmetadata="try{this.currentTime=0.01}catch(e){}"` : '';
-        const overlay = twoTap ? `
-            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;background:rgba(0,0,0,0.15)"
-                 onclick="(function(el){var v=document.getElementById('${vidId}'); if(v){try{v.preload='auto'; v.play();}catch(e){}} el.style.display='none';})(this)">
-              <div class="play-btn-overlay">▶</div>
-            </div>
-        ` : '';
+        const ovId = `p1_ov_${msgId}`;
 
+        // 先渲染 video 但不设 src，避免“刚插入 DOM 就开始下载”
         container.innerHTML = `
              <div style="font-weight:bold;color:#4ea8ff">🎬 ${safeName}</div>
-             <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (${twoTap ? '预览' : '流式直连'})</div>
+             <div style="font-size:11px;color:#aaa;margin-bottom:8px">点击播放（封面遮罩避免黑屏）</div>
 
              <div style="position:relative">
-               <video id="${vidId}" controls ${autoplayAttr} preload="${preloadAttr}" src="${streamUrl}"
+               <video id="${vidId}" controls preload="metadata"
+                      playsinline
                       style="width:100%;max-width:300px;background:#000;border-radius:4px"
-                      ${onMeta}
                       onerror="window.handleVideoError(this, '${jsName}')"></video>
-               ${overlay}
+
+               <div id="${ovId}"
+                    style="position:absolute;inset:0;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+                           background:linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35));
+                           color:#e5e7eb;cursor:pointer;transition:opacity .18s ease;">
+                 <div class="play-btn-overlay">▶</div>
+                 <div style="font-size:12px;opacity:.92;max-width:90%;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   ${safeName}
+                 </div>
+                 <div style="font-size:10px;opacity:.7;">轻触开始播放</div>
+               </div>
              </div>
 
              <div class="video-error" style="display:none">
@@ -303,6 +306,33 @@ export function init() {
              <div style="text-align:right;margin-top:4px">
                  <a href="javascript:void(0)" onclick="window.smartCore.download('${fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
              </div>`;
+
+        try {
+          const v = container.querySelector(`#${vidId}`);
+          const ov = container.querySelector(`#${ovId}`);
+
+          const startPlay = () => {
+            try {
+              if (v && !v.src) v.src = streamUrl;
+            } catch (_) {}
+            try { v && v.play && v.play(); } catch (_) {}
+          };
+
+          if (ov) ov.addEventListener('click', startPlay);
+
+          if (v) {
+            // 有首帧数据后再隐藏遮罩（避免黑屏闪）
+            v.addEventListener('loadeddata', () => {
+              try {
+                if (ov) {
+                  ov.style.opacity = '0';
+                  setTimeout(() => { try { ov.remove(); } catch (_) {} }, 200);
+                }
+              } catch (_) {}
+            }, { once: true });
+          }
+        } catch (_) {}
+
         return;
       }
 
@@ -310,7 +340,7 @@ export function init() {
         container.innerHTML = `
              <div style="font-weight:bold;color:#4ea8ff">🎵 ${safeName}</div>
              <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (流式音频)</div>
-             <audio controls autoplay src="${streamUrl}"
+             <audio controls autoplay src="${baseUrl}"
                     style="width:100%;max-width:260px;height:40px;margin-top:4px"
                     onerror="window.handleVideoError(this, '${jsName}')"></audio>
              <div class="video-error" style="display:none">❌ 加载失败</div>
@@ -319,6 +349,8 @@ export function init() {
              </div>`;
         return;
       }
+
+
 
     },
 

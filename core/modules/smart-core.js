@@ -184,25 +184,14 @@ export function init() {
           const fileType = meta.fileType || '';
           const fileSize = meta.fileSize || 0;
 
-          // 本地文件直接播放（无损优化：同一个 fileId 复用同一个 blob URL，避免 UI 触发 play() 多次导致视频闪烁/重播）
-           if (window.virtualFiles.has(fileId)) {
-               try {
-                   window.__p1_blobUrlCache = window.__p1_blobUrlCache || new Map();
-                   const cached = window.__p1_blobUrlCache.get(fileId);
-                   if (cached) return cached;
+          // 本地文件直接播放
+          if (window.virtualFiles.has(fileId)) {
+              const url = URL.createObjectURL(window.virtualFiles.get(fileId));
+              log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
+              return url;
+          }
 
-                   const fileObj = window.virtualFiles.get(fileId);
-                   const url = URL.createObjectURL(fileObj);
-                   window.__p1_blobUrlCache.set(fileId, url);
-
-                   log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
-                   return url;
-               } catch(e) {
-                   const url = URL.createObjectURL(window.virtualFiles.get(fileId));
-                   return url;
-               }
-           }
-// === 关键修改：接收方 play() 时不主动触发下载，只生成 URL 等待浏览器/用户请求 ===
+          // === 关键修改：接收方 play() 时不主动触发下载，只生成 URL 等待浏览器/用户请求 ===
           // startDownloadTask(fileId); 
 
           const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
@@ -308,13 +297,6 @@ export function init() {
       runDiag: () => {
           log(`Tasks: ${window.activeTasks.size}, SendQ: ${SEND_QUEUE.length}`);
       }
-  };
-
-  // === Runtime flags (no UI) ===
-  // videoTwoTapPlay=true: 接收方点击一次加载到首帧并停住（preload=metadata），再次点击播放才继续拉取
-  window.smartCore.flags = window.smartCore.flags || { videoTwoTapPlay: false };
-  window.smartCore.setFlags = (o = {}) => {
-      try { Object.assign(window.smartCore.flags, o || {}); } catch(e) {}
   };
 
   setInterval(checkTimeouts, 1000);

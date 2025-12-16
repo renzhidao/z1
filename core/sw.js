@@ -1,4 +1,3 @@
-// P1-BUILD v2025-12-16-fix6
 const CACHE_NAME = 'p1-stream-v1765199409-p2'; // PATCH: Version Bump（确保 sw 更新生效）
 const CORE_ASSETS = [
   './',
