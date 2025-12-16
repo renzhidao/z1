@@ -23,6 +23,15 @@ export function init() {
   };
 
   window.addEventListener('unhandledrejection', function(e) {
+    const __r = (e && e.reason);
+    const __rs = String(__r || '');
+    // CLIPBOARD_NOT_FOCUSED: 浏览器安全限制（页面未聚焦）不应污染为“Promise挂掉/崩溃”
+    if ((__rs.indexOf('Clipboard') >= 0 || __rs.indexOf('writeText') >= 0) && (__rs.indexOf('not focused') >= 0 || __rs.indexOf('NotAllowedError') >= 0)) {
+      try { if (e && typeof e.preventDefault === 'function') e.preventDefault(); } catch (_) {}
+      try { console.warn('[CLIPBOARD_NOT_FOCUSED ignored]', __rs); } catch (_) {}
+      return;
+    }
+
     const info = `❌ [Promise挂掉] ${e.reason}`;
     console.error(info, e);
     if (window.logSystem) window.logSystem.add(info);

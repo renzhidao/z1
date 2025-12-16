@@ -45,6 +45,7 @@ export class TaskManager {
       peers: [],
       peerIndex: 0,
       _lastConnectTry: 0,
+      _lastNoConnLog: 0,
 
       nextOffset: 0,
       lastWanted: -CHUNK_SIZE,
@@ -169,12 +170,26 @@ export class TaskManager {
     while (task.inflight.size < PARALLEL && task.wantQueue.length > 0) {
       const off = task.wantQueue.shift();
       const conn = this.pickConn(task);
-      if (!conn) { task.wantQueue.unshift(off); break; }
+      if (!conn) {
+        try {
+          const now = Date.now();
+          if (!task._lastNoConnLog || (now - task._lastNoConnLog) > 1500) {
+            task._lastNoConnLog = now;
+            log(`🔌 NO_CONN file=${task.fileId} wantOff=${off} peers=${(task.peers||[]).length} inflight=${task.inflight.size} q=${task.wantQueue.length}`);
+          }
+        } catch (_) {}
+        task.wantQueue.unshift(off);
+        break;
+      }
 
       try {
         const offNum = toNum(off);
         if (!Number.isFinite(offNum) || offNum < 0) continue;
 
+        try {
+          const pid = conn && (conn._peerId || conn.peerId || conn.id || conn._id);
+          log(`➡️ GET file=${task.fileId} off=${offNum} size=${CHUNK_SIZE} -> ${pid || 'peer'} inflight=${task.inflight.size + 1}/${PARALLEL} q=${task.wantQueue.length}`);
+        } catch (_) {}
         conn.send({ t: 'SMART_GET', fileId: task.fileId, offset: offNum, size: CHUNK_SIZE, reqId: task.fileId });
         task.inflight.add(offNum);
         task.inflightTimestamps.set(offNum, Date.now());
@@ -206,6 +221,7 @@ export class TaskManager {
         const pid = task.peers[idx];
         const c = conns[pid];
         if (isConnOpen(c)) {
+          try { c._peerId = pid; } catch (_) {}
           task.peerIndex = (idx + 1) % task.peers.length;
           return c;
         }
@@ -319,6 +335,9 @@ export class TaskManager {
     if (offset >= file.size) return;
     size = Math.min(size, file.size - offset);
 
+
+    try { log(`📨 GET_RX from=${fromId} file=${pkt.fileId} off=${offset} size=${size}`); } catch (_) {}
+
     const reader = new FileReader();
 
     reader.onload = () => {
@@ -332,9 +351,13 @@ export class TaskManager {
         packet[0] = headerBytes.byteLength;
         packet.set(headerBytes, 1);
         packet.set(new Uint8Array(buffer), 1 + headerBytes.byteLength);
-
         const conn = window.state && window.state.conns && window.state.conns[fromId];
-        if (conn && conn.open) this.sendSafe(conn, packet);
+        if (conn && conn.open) {
+          try { log(`📤 SEND_CHUNK to=${fromId} file=${pkt.fileId} off=${offset} bytes=${packet.byteLength}`); } catch (_) {}
+          this.sendSafe(conn, packet);
+        } else {
+          try { log(`🔌 SEND_NO_CONN to=${fromId} file=${pkt.fileId} off=${offset}`); } catch (_) {}
+        }
       } catch (e) {
         log('❌ 发送组包异常: ' + e);
       }

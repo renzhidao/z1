@@ -59,7 +59,7 @@ export class StreamManager {
     if (end >= task.size) end = task.size - 1;
     if (end < start) end = start;
 
-    log(`📡 SW OPEN ${requestId}: range=${start}-${end} (${(end - start + 1)} bytes)`);
+    log(`📡 SW OPEN ${requestId}: file=${fileId} hdr=${range || ''} -> ${start}-${end} (${(end - start + 1)} bytes)`);
 
     try {
       source.postMessage({
@@ -76,6 +76,10 @@ export class StreamManager {
     task.swRequests.set(requestId, { start, end, current: start, source });
 
     const reqChunkIndex = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
+
+    try {
+      log(`🧷 SW REQ ${requestId}: cur=${start} end=${end} reqChunk=${reqChunkIndex} inflight=${task.inflight.size} q=${task.wantQueue.length}`);
+    } catch (_) {}
 
     // small file prefetch / seek reset
     if (task.size < 2 * 1024 * 1024) {
@@ -114,10 +118,14 @@ export class StreamManager {
     const { requestId } = data || {};
     if (!requestId) return;
 
+    let hit = 0;
     this.core.tasks.activeTasks.forEach(t => {
+      try { if (t.swRequests && t.swRequests.has(requestId)) hit++; } catch (_) {}
       t.swRequests.delete(requestId);
       if (t.completed) this.core.tasks.cleanupTask(t.fileId);
     });
+
+    try { log(`🛑 SW CANCEL ${requestId} hitTasks=${hit}`); } catch (_) {}
   }
 
   processSwQueue(task) {
@@ -158,6 +166,9 @@ export class StreamManager {
           }
         } else {
           // 缺块：把当前 chunk 顶到最高优先级，并尝试立刻发起请求（避免只等下次调度）
+          try {
+            log(`⏳ SW WAIT ${reqId}: needChunk=${chunkOffset} cur=${req.current} end=${req.end} inflight=${task.inflight.has(chunkOffset)} q=${task.wantQueue.length}`);
+          } catch (_) {}
           try {
             if (!task.parts.has(chunkOffset) && !task.inflight.has(chunkOffset)) {
               const idx = task.wantQueue.indexOf(chunkOffset);
