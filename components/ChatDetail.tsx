@@ -100,6 +100,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   // 图片预览
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  // 调试开关：图片裂图排查用（随时可删）
+  const DEBUG_MEDIA = true;
+
+  // SW 是否已接管当前页面：图片/文件流必须靠 SW 拦截 /virtual/file/*
+  const [swReady, setSwReady] = useState<boolean>(!!(navigator.serviceWorker && navigator.serviceWorker.controller));
+  const [swReloadToken, setSwReloadToken] = useState<number>(0);
+
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -131,14 +138,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const normalizeVirtualUrl = (url: string) => {
     if (!url) return url;
     if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http')) return url;
-    if (url.startsWith('./virtual/file/')) {
-      return getCoreBase() + url.slice(2);
+    try {
+      // 关键：把 ./virtual/file/* 变成绝对 URL，避免相对路径在不同页面基准下走错
+      return new URL(url, window.location.href).toString();
+    } catch (e) {
+      return url;
     }
-    if (url.startsWith('/virtual/file/')) {
-      const base = getCoreBase().replace(/\/$/, '');
-      return base + url;
-    }
-    return url;
   };
 
   // 关键修复：进入聊天时同步 Core 的 activeChat，否则协议层不会把消息路由到当前会话
@@ -353,11 +358,29 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   // 媒体 URL：对齐旧版 smartCore.play + 修正 /core/ 作用域
   const getMediaSrc = (msg: any) => {
     if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
+
     if (msg.meta?.fileId && window.smartCore) {
-      const u = window.smartCore.play(msg.meta.fileId, msg.meta.fileName || msg.meta.fileName || '');
-      return normalizeVirtualUrl(u);
+      const raw = window.smartCore.play(msg.meta.fileId, msg.meta.fileName || msg.meta.fileName || '');
+      const u0 = normalizeVirtualUrl(raw);
+      const isVirtual = typeof u0 === 'string' && u0.includes('/virtual/file/');
+
+      // SW 未接管时，先不发起虚拟流请求，避免 404 裂图；等 swReady=true 后再加载
+      if (isVirtual && !swReady) {
+        try { if (DEBUG_MEDIA) console.warn('[MEDIA] wait SW controller for image/video', { id: msg.id, fileId: msg.meta?.fileId, url: u0 }); } catch (_) {}
+        return '';
+      }
+
+      // controller 就绪后，给 URL 加一个参数强制重新加载一次（解决“先 404 后不再重试”）
+      if (isVirtual && swReloadToken) {
+        const sep = u0.includes('?') ? '&' : '?';
+        return `${u0}${sep}r=${swReloadToken}`;
+      }
+
+      return u0;
     }
+
     return msg.txt || '';
+  
   };
 
   return (
@@ -449,21 +472,52 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                   onContextMenu={(e) => e.preventDefault()}
                 >
                   {isImage ? (
-                    <img
-                      src={mediaSrc}
-                      className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover"
-                      alt="Image"
-                      onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        if (!target.dataset.retried) {
-                          target.dataset.retried = 'true';
-                          setTimeout(() => { target.src = mediaSrc; }, 1000);
-                        }
-                      }}
-                    />
+                    mediaSrc ? (
+                      <img
+                        src={mediaSrc}
+                        className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover"
+                        alt="Image"
+                        onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          try {
+                            if (DEBUG_MEDIA) console.warn('[IMG] onError', {
+                              id: msg.id,
+                              fileId: msg.meta?.fileId,
+                              src: target.src,
+                              swReady,
+                              controller: !!navigator.serviceWorker?.controller
+                            });
+                          } catch (_) {}
+
+                          // SW 还没接管：不做无意义重试，等 controllerchange 触发 swReloadToken 后会自动重载
+                          if (!swReady) return;
+
+                          const retry = parseInt(target.dataset.retry || '0', 10);
+                          if (retry >= 3) return;
+                          target.dataset.retry = String(retry + 1);
+
+                          // 强制刷新（加时间戳避免缓存层命中错误结果）
+                          const base = target.src.split('#')[0];
+                          const sep = base.includes('?') ? '&' : '?';
+                          setTimeout(() => {
+                            target.src = `${base}${sep}t=${Date.now()}&k=${retry + 1}`;
+                          }, 800);
+                        }}
+                      />
+                    ) : (
+                      <div className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[80px] min-w-[80px] flex items-center justify-center text-[12px] text-gray-400">
+                        图片加载中...
+                      </div>
+                    )
                   ) : isVideo ? (
-                    <VideoMessage src={mediaSrc} fileName={fileName || 'Video'} />
+                    mediaSrc ? (
+                      <VideoMessage src={mediaSrc} fileName={fileName || 'Video'} />
+                    ) : (
+                      <div className="rounded-[6px] border border-gray-200 max-w-[240px] bg-black min-h-[120px] min-w-[160px] flex items-center justify-center text-[12px] text-white/70">
+                        视频加载中...
+                      </div>
+                    )
                   ) : isFile ? (
                     <div onClick={() => handleSmartFileDownload(msg)} className="bg-white p-3 rounded-[4px] shadow-sm border border-gray-100 cursor-pointer active:bg-gray-50">
                       <div className="flex items-center gap-2">
