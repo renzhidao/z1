@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
-import { ChevronLeft, MoreHorizontal, Smile, PlusCircle, Mic, Keyboard, Volume2, Video } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Smile, PlusCircle, Mic, Keyboard, Volume2, Video, FileText } from 'lucide-react';
 import { sendMessageToGemini } from '../services/geminiService';
 
 interface ChatDetailProps {
@@ -12,7 +12,8 @@ interface ChatDetailProps {
   onVideoCall: () => void;
 }
 
-// === Smart Image Component (Refactored for Reliability) ===
+// === Smart Image Component (Simplified & Robust) ===
+// 修复：移除 fetch HEAD 预检，改用原生 onError + 自动重试参数
 const SmartImage: React.FC<{ 
     src: string; 
     alt: string; 
@@ -20,93 +21,45 @@ const SmartImage: React.FC<{
     className?: string; 
     onClick?: () => void; 
 }> = ({ src, alt, fileId, className, onClick }) => {
-    const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-    const [retryCount, setRetryCount] = useState(0);
-    const [displaySrc, setDisplaySrc] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [isError, setIsError] = useState(false);
+    const [retryKey, setRetryKey] = useState(0);
 
-    useEffect(() => {
-        let active = true;
-        setStatus('loading');
-
-        // 1. Blob URL directly (Local file)
-        if (src.startsWith('blob:')) {
-            setDisplaySrc(src);
-            setStatus('success');
-            return;
-        }
-
-        // 2. Virtual URL (Remote P2P file)
-        if (src.includes('/virtual/file/')) {
-            // Append timestamp to bust cache on retries
-            const probeUrl = retryCount > 0 ? `${src}?retry=${retryCount}&t=${Date.now()}` : src;
-            
-            // Pre-flight check (HEAD request) to ensure SW is ready and task is started
-            fetch(probeUrl, { method: 'HEAD' })
-                .then(res => {
-                    if (!active) return;
-                    if (res.ok || res.status === 200 || res.status === 206) {
-                        setDisplaySrc(probeUrl);
-                        setStatus('success');
-                    } else {
-                        // If 404/504, it might be temporary (connecting...)
-                        console.warn(`SmartImage Probe Failed: ${res.status}`);
-                        setStatus('error');
-                    }
-                })
-                .catch(err => {
-                    if (!active) return;
-                    console.error("SmartImage Probe Error:", err);
-                    setStatus('error');
-                });
-        } else {
-            // 3. Normal URL
-            setDisplaySrc(src);
-            setStatus('success');
-        }
-
-        return () => { active = false; };
-    }, [src, retryCount]);
-
-    const handleRetry = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setRetryCount(c => c + 1);
-    };
-
-    if (status === 'loading') {
-        return (
-            <div className={`flex items-center justify-center bg-[#2b2b2b] ${className}`} style={{ width: '100px', height: '100px' }}>
-                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            </div>
-        );
-    }
-
-    if (status === 'error') {
-        return (
-            <div className={`flex flex-col items-center justify-center bg-[#1f1f1f] text-gray-500 text-xs gap-2 cursor-pointer ${className}`} 
-                 style={{ minWidth: '100px', minHeight: '100px' }}
-                 onClick={handleRetry}
-            >
-                <span>图片加载失败</span>
-                <span className="text-[#07C160] border border-[#07C160] px-2 py-0.5 rounded text-[10px]">点击重试</span>
-            </div>
-        );
-    }
+    // 自动为虚拟文件添加 retry 参数，触发 SW 重新处理
+    const displaySrc = src.includes('/virtual/file/') ? `${src}${src.includes('?') ? '&' : '?'}retry=${retryKey}` : src;
 
     return (
-        <img 
-            src={displaySrc} 
-            alt={alt} 
-            className={className} 
-            onClick={onClick}
-            onError={() => setStatus('error')} // Fallback if <img> tag fails even after probe
-        />
+        <div className={`relative overflow-hidden bg-[#e5e5e5] ${className}`} style={{ minWidth: '60px', minHeight: '60px' }}>
+            {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center z-10">
+                    <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+            )}
+            {isError ? (
+                <div 
+                    className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 text-[10px] cursor-pointer bg-[#f0f0f0]"
+                    onClick={(e) => { e.stopPropagation(); setIsError(false); setIsLoading(true); setRetryKey(k => k + 1); }}
+                >
+                    <span>图片裂了</span>
+                    <span className="mt-1 text-blue-500">点我重试</span>
+                </div>
+            ) : (
+                <img 
+                    src={displaySrc} 
+                    alt={alt} 
+                    className={`w-full h-full object-cover transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+                    onLoad={() => setIsLoading(false)}
+                    onError={() => { setIsLoading(false); setIsError(true); }}
+                    onClick={onClick}
+                />
+            )}
+        </div>
     );
 };
 
-
 const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, onShowToast, onUserClick, onVideoCall }) => {
   const [inputText, setInputText] = useState('');
-  const [messages, setMessages] = useState<Message[]>(chat.messages || []);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isAiTyping, setIsAiTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
@@ -118,14 +71,71 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Sync with prop updates
-  useEffect(() => {
-      setMessages(chat.messages || []);
-  }, [chat.messages]);
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // === Core Logic Injection ===
+  useEffect(() => {
+    const processMessages = (msgs: any[]) => {
+      // 过滤掉无效的媒体消息
+      const filtered = msgs.filter(m => {
+        const isBroken = (m.kind === 'image' || m.kind === 'video') && !m.txt && !(m.meta && m.meta.fileId);
+        return !isBroken;
+      });
+
+      return filtered.map(m => ({
+        ...m,
+        text: m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName}` : m.kind === 'image' ? '[图片]' : m.kind === 'voice' ? `[语音] ${m.txt || ''}` : ''),
+        timestamp: new Date(m.ts)
+      })).sort((a: any, b: any) => a.ts - b.ts);
+    };
+
+    // Load initial history
+    if (window.db) {
+      window.db.getRecent(50, chat.id).then((msgs: any[]) => {
+        setMessages(processMessages(msgs));
+        setTimeout(scrollToBottom, 100);
+      });
+    }
+
+    // Listen for real-time updates
+    const handler = (e: CustomEvent) => {
+      const { type, data } = e.detail;
+      
+      if (type === 'clear') {
+          setMessages([]);
+          return;
+      }
+      
+      if (type !== 'msg') return;
+
+      const raw = data;
+      const isPublic = chat.id === 'all' && raw.target === 'all';
+      const isRelated = (raw.senderId === chat.id && raw.target === currentUserId) || (raw.senderId === currentUserId && raw.target === chat.id);
+
+      if (isPublic || isRelated) {
+        // Filter broken
+        const isBroken = (raw.kind === 'image' || raw.kind === 'video') && !raw.txt && !(raw.meta && raw.meta.fileId);
+        if (isBroken) return;
+
+        const newMsg = {
+          ...raw,
+          text: raw.txt || (raw.kind === 'SMART_FILE_UI' ? `[文件] ${raw.meta?.fileName}` : raw.kind === 'image' ? '[图片]' : raw.kind === 'voice' ? `[语音] ${raw.txt || ''}` : ''),
+          timestamp: new Date(raw.ts)
+        };
+
+        setMessages(prev => {
+          if (prev.find(m => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts);
+        });
+        setTimeout(scrollToBottom, 100);
+      }
+    };
+
+    window.addEventListener('core-ui-update', handler as EventListener);
+    return () => window.removeEventListener('core-ui-update', handler as EventListener);
+  }, [chat.id, currentUserId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -134,23 +144,19 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const handleSendMessage = async () => {
     if (!inputText.trim()) return;
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      text: inputText,
-      senderId: currentUserId,
-      timestamp: new Date(),
-    };
-
-    // Optimistic UI update
-    setMessages(prev => [...prev, newMessage]);
+    const textToSend = inputText;
     setInputText('');
 
-    // Call Core Protocol
+    // 修复：移除 setMessages 乐观更新，防止重复
+    // 消息会通过 Core -> Protocol -> ProcessIncoming -> Event 环路回来
+
     if (window.protocol) {
-        window.protocol.sendMsg(newMessage.text);
+        window.protocol.sendMsg(textToSend);
+    } else {
+        onShowToast("核心未连接");
     }
 
-    // AI Logic
+    // AI Logic (Keep local for now)
     if (chat.isAi) {
       setIsAiTyping(true);
       const history = messages.map(m => ({
@@ -159,7 +165,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       }));
 
       try {
-        const responseText = await sendMessageToGemini(newMessage.text, history);
+        const responseText = await sendMessageToGemini(textToSend, history);
         
         const aiMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -167,7 +173,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           senderId: 'gemini',
           timestamp: new Date(),
         };
-        
         setMessages(prev => [...prev, aiMessage]);
       } catch (error) {
         console.error("AI Error", error);
@@ -198,11 +203,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
 
           recorder.onstop = () => {
               const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-              // Calculate duration based on recordingTime state
-              // Note: recordingTime is incremented every 100ms, so /10 is seconds
               const durationSec = Math.ceil(recordingTime / 10); 
               handleSendVoice(blob, durationSec);
-              
               stream.getTracks().forEach(track => track.stop());
           };
 
@@ -230,28 +232,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const handleSendVoice = (blob: Blob, duration: number) => {
       const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
       
-      // Update Local UI (Optimistic)
-      const msg: Message = {
-          id: Date.now().toString(),
-          text: `[语音] ${duration}"`, 
-          senderId: currentUserId,
-          timestamp: new Date(),
-          kind: 'voice',
-          // Generate a temporary local blob URL for immediate playback
-          meta: {
-              fileId: 'temp_' + Date.now(),
-              fileName: file.name,
-              fileSize: file.size,
-              fileType: file.type,
-              fileObj: file 
-          }
-      };
-      setMessages(prev => [...prev, msg]);
-
-      // Call Core
+      // 修复：移除乐观更新
       if (window.protocol) {
-          // IMPORTANT: Pass duration string as the first argument 'txt'
-          // SmartCore hook will pick this up.
+          // Pass duration string as 'txt' for display
           window.protocol.sendMsg(`${duration}"`, 'voice', {
               fileObj: file,
               name: file.name,
@@ -266,25 +249,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // Optimistic UI
-      const msg: Message = {
-          id: Date.now().toString(),
-          text: '[图片]',
-          senderId: currentUserId,
-          timestamp: new Date(),
-          kind: 'image',
-          // Store file object locally for blob preview
-          meta: {
-              fileId: 'local_' + Date.now(),
-              fileName: file.name,
-              fileSize: file.size,
-              fileType: file.type,
-              fileObj: file 
-          }
-      };
-      setMessages(prev => [...prev, msg]);
-
-      // Send to Core
+      // 修复：移除乐观更新
       if (window.protocol) {
           window.protocol.sendMsg(null, 'image', {
               fileObj: file,
@@ -318,7 +283,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           const isMe = msg.senderId === currentUserId;
           const showAvatar = true; 
           
-          // Determine Content to Render
           let content;
           
           // 1. SmartCore/Protocol File Message
@@ -327,7 +291,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
               
               // Handle Image
               if (msg.kind === 'image' && meta) {
-                  // Get URL from SmartCore (could be blob or virtual)
                   const url = window.smartCore ? window.smartCore.play(meta.fileId, meta.fileName) : '';
                   content = (
                       <SmartImage 
@@ -342,25 +305,29 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
               // Handle Voice
               else if (msg.kind === 'voice') {
                   const duration = msg.text || msg.txt || '1"';
-                  // Clean up duration string if needed
-                  const cleanDuration = duration.replace('"', '').replace('”', '');
+                  const cleanDuration = parseInt(duration.replace(/[^0-9]/g, '')) || 1;
+                  const barWidth = Math.min(60 + cleanDuration * 5, 200);
                   
                   content = (
-                      <div className="flex items-center gap-2 cursor-pointer min-w-[60px]" onClick={() => {
+                      <div 
+                        className="flex items-center gap-2 cursor-pointer h-[24px] select-none" 
+                        style={{ width: `${barWidth}px`, justifyContent: isMe ? 'flex-end' : 'flex-start' }}
+                        onClick={() => {
                           if (meta && window.smartCore) {
                               const audio = new Audio(window.smartCore.play(meta.fileId, meta.fileName));
-                              audio.play();
+                              audio.play().catch(e => onShowToast("播放失败"));
                           }
-                      }}>
+                        }}
+                      >
                           {isMe ? (
                               <>
-                                <span>{cleanDuration}"</span>
-                                <Volume2 size={18} className="rotate-180" /> 
+                                <span className="text-[#191919] mr-1">{cleanDuration}"</span>
+                                <Volume2 size={20} className="rotate-180 text-[#191919]" /> 
                               </>
                           ) : (
                               <>
-                                <Volume2 size={18} />
-                                <span>{cleanDuration}"</span>
+                                <Volume2 size={20} className="text-[#191919]" />
+                                <span className="text-[#191919] ml-1">{cleanDuration}"</span>
                               </>
                           )}
                       </div>
@@ -371,26 +338,27 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                    const url = window.smartCore ? window.smartCore.play(meta.fileId, meta.fileName) : '';
                    content = (
                        <div className="relative">
-                           <video src={url} className="max-w-[200px] rounded-[6px] bg-black" controls />
-                           <div className="absolute top-2 right-2 text-white text-xs drop-shadow-md">{meta.fileName}</div>
+                           <video src={url} className="max-w-[200px] max-h-[200px] rounded-[6px] bg-black" controls />
                        </div>
                    );
               }
               // Generic File
               else if (meta) {
                   content = (
-                      <div className="flex items-center gap-3 p-1">
-                          <div className="bg-white p-2 rounded">
-                              <FileText size={24} className="text-gray-500" />
+                      <div className="flex items-center gap-3 p-1 min-w-[180px]" onClick={() => {
+                          if(window.smartCore) window.smartCore.download(meta.fileId, meta.fileName);
+                      }}>
+                          <div className="bg-white p-2 rounded shrink-0">
+                              <FileText size={24} className="text-[#FA9D3B]" />
                           </div>
                           <div className="flex flex-col overflow-hidden">
-                              <span className="text-sm truncate max-w-[140px]">{meta.fileName}</span>
-                              <span className="text-xs text-gray-400">{(meta.fileSize / 1024).toFixed(1)} KB</span>
+                              <span className="text-[14px] text-[#191919] truncate max-w-[140px]">{meta.fileName}</span>
+                              <span className="text-[10px] text-gray-400">{(meta.fileSize / 1024).toFixed(1)} KB</span>
                           </div>
                       </div>
                   );
               } else {
-                  content = <span>[文件]</span>;
+                  content = <span className="text-gray-400 text-sm">[未知文件]</span>;
               }
           } 
           // 2. Legacy Text Message
@@ -519,7 +487,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                     accept="image/*"
                     onChange={handleImageSelect}
                 />
-                {/* Expand menu hint (just for visual matching, actual logic is simple file input) */}
             </div>
         )}
       </div>
