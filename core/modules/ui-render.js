@@ -264,35 +264,62 @@ export function init() {
       if (!container || !window.smartCore) return;
 
       const streamUrl = window.smartCore.play(fileId, fileName);
-      const safeName = window.util.escape(fileName || 'file');
+
+      // 避免文件名里包含引号导致 inline handler 断裂
+      const rawName = String(fileName || 'file');
+      const jsName = rawName.replace(/\/g, '\\').replace(/'/g, "\'");
+      const safeName = window.util.escape(rawName);
+
+      // 开关：默认关闭。开启后视频第一次点击只“出封面/首帧”（尽量少拉取），再点击才真正播放
+      const twoTap = !!(window.smartCore && window.smartCore.flags && window.smartCore.flags.videoTwoTapPlay);
 
       if (type === 'video') {
+        const vidId = `p1_vid_${msgId}`;
+        const autoplayAttr = twoTap ? '' : 'autoplay';
+        const preloadAttr = twoTap ? 'metadata' : 'auto';
+        const onMeta = twoTap ? `onloadedmetadata="try{this.currentTime=0.01}catch(e){}"` : '';
+        const overlay = twoTap ? `
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;background:rgba(0,0,0,0.15)"
+                 onclick="(function(el){var v=document.getElementById('${vidId}'); if(v){try{v.preload='auto'; v.play();}catch(e){}} el.style.display='none';})(this)">
+              <div class="play-btn-overlay">▶</div>
+            </div>
+        ` : '';
+
         container.innerHTML = `
              <div style="font-weight:bold;color:#4ea8ff">🎬 ${safeName}</div>
-             <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (流式直连)</div>
-             
-             <video controls autoplay src="${streamUrl}" 
-                    style="width:100%;max-width:300px;background:#000;border-radius:4px"
-                    onerror="window.handleVideoError(this, '${safeName}')"></video>
-             
+             <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (${twoTap ? '预览' : '流式直连'})</div>
+
+             <div style="position:relative">
+               <video id="${vidId}" controls ${autoplayAttr} preload="${preloadAttr}" src="${streamUrl}"
+                      style="width:100%;max-width:300px;background:#000;border-radius:4px"
+                      ${onMeta}
+                      onerror="window.handleVideoError(this, '${jsName}')"></video>
+               ${overlay}
+             </div>
+
              <div class="video-error" style="display:none">
                 ❌ 视频加载失败<br><span style="font-size:10px">请查看诊断面板获取错误码</span>
              </div>
              <div style="text-align:right;margin-top:4px">
                  <a href="javascript:void(0)" onclick="window.smartCore.download('${fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
              </div>`;
-      } else if (type === 'audio') {
+        return;
+      }
+
+      if (type === 'audio') {
         container.innerHTML = `
              <div style="font-weight:bold;color:#4ea8ff">🎵 ${safeName}</div>
              <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (流式音频)</div>
-             <audio controls autoplay src="${streamUrl}" 
+             <audio controls autoplay src="${streamUrl}"
                     style="width:100%;max-width:260px;height:40px;margin-top:4px"
-                    onerror="window.handleVideoError(this, '${safeName}')"></audio>
+                    onerror="window.handleVideoError(this, '${jsName}')"></audio>
              <div class="video-error" style="display:none">❌ 加载失败</div>
              <div style="text-align:right;margin-top:4px">
                  <a href="javascript:void(0)" onclick="window.smartCore.download('${fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
              </div>`;
+        return;
       }
+
     },
 
     appendMsg(m) {
