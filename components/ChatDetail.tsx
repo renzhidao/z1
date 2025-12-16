@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, Message } from '../types';
-import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Mic, Smile, PlusCircle, Image as ImageIcon, Camera, MapPin, Keyboard, Video, Wallet, FolderHeart, User as UserIcon, Smartphone, Copy, Share, Trash2, CheckSquare, MessageSquareQuote, Bell, Search as SearchIcon, X } from 'lucide-react';
 import CallOverlay from './CallOverlay';
 
 interface ChatDetailProps {
@@ -96,6 +96,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
   const [showCallMenu, setShowCallMenu] = useState(false);
   const [activeCall, setActiveCall] = useState<'voice' | 'video' | null>(null);
   const [msgContextMenu, setMsgContextMenu] = useState<{ visible: boolean; x: number; y: number; message: Message | null; }>({ visible: false, x: 0, y: 0, message: null });
+  
+  // 新增：图片预览状态
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -138,8 +141,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                     text: raw.txt || (raw.kind === 'SMART_FILE_UI' ? `[文件] ${raw.meta?.fileName}` : raw.kind === 'image' ? '[图片]' : raw.kind === 'voice' ? `[语音] ${raw.meta?.fileName}` : ''),
                     timestamp: new Date(raw.ts)
                 };
+                
+                // 核心修改：严格 ID 去重 (借鉴旧版 document.getElementById 逻辑)
                 setMessages(prev => {
-                    if (prev.find(m => m.id === newMsg.id)) return prev;
+                    if (prev.find(m => m.id === newMsg.id)) return prev; // 绝对去重
                     return [...prev, newMsg].sort((a: any,b: any) => a.ts - b.ts);
                 });
                 setTimeout(scrollToBottom, 100);
@@ -186,7 +191,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
 
   // --- 录音逻辑 ---
   const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault(); // 防止双重触发
+    e.preventDefault(); 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
@@ -242,7 +247,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       if (window.smartCore && window.protocol) {
           const { msg } = window.smartCore.sendFile(file, chat.id, { kind });
           if (kind === 'video') msg.meta = { ...msg.meta, fileType: file.type };
-          // 发送时附带 fileObj 用于本地预览
+          // 发送时不手动添加，依赖 core-ui-update，同时附带 fileObj 用于本地快速回显
           window.protocol.sendMsg(null, kind as any, { ...msg.meta, fileObj: file });
       }
   };
@@ -284,16 +289,33 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
       { icon: <Smartphone size={24} />, label: '文件', action: () => handleFileAction('file') },
   ];
 
-  // 辅助：获取媒体源（支持本地预览）
+  // 核心修改：借鉴旧版 smartCore.play 逻辑
   const getMediaSrc = (msg: Message) => {
+      // 1. 发送方：本地有 fileObj (秒开)
       if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
-      if (msg.meta?.fileId && window.smartCore) return window.smartCore.play(msg.meta.fileId);
+      
+      // 2. 接收方/发送完刷新后：使用 fileId 获取核心流地址
+      if (msg.meta?.fileId && window.smartCore) {
+          return window.smartCore.play(msg.meta.fileId, msg.meta.fileName);
+      }
+      
+      // 3. 兜底
       return msg.txt || '';
   };
 
   return (
     <div className="fixed inset-0 bg-[#EDEDED] z-50 flex flex-col animate-in slide-in-from-right duration-300">
       <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
+
+      {/* 图片预览覆盖层 (借鉴旧版 .img-preview-overlay) */}
+      {previewUrl && (
+        <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center animate-in fade-in duration-200" onClick={() => setPreviewUrl(null)}>
+            <img src={previewUrl} className="max-w-full max-h-full object-contain" alt="Preview" />
+            <button className="absolute top-10 right-4 p-2 bg-white/20 rounded-full text-white backdrop-blur-sm active:bg-white/30" onClick={() => setPreviewUrl(null)}>
+                <X size={24} strokeWidth={2} />
+            </button>
+        </div>
+      )}
 
       {/* Call Overlay */}
       {activeCall && (
@@ -338,6 +360,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
           const isFile = msg.kind === 'SMART_FILE_UI' && !isVideo;
           const isVoice = msg.kind === 'voice';
 
+          const mediaSrc = (isImage || isVideo) ? getMediaSrc(msg) : '';
+
           return (
             <div key={msg.id || idx} className="mb-4 relative">
               {showTime && (
@@ -364,13 +388,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
                 >
                    {isImage ? (
                        <img 
-                          src={getMediaSrc(msg)}
-                          className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white" 
+                          src={mediaSrc}
+                          className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover" 
                           alt="Image" 
+                          onClick={(e) => { e.stopPropagation(); setPreviewUrl(mediaSrc); }}
                        />
                    ) : isVideo ? (
                        <VideoMessage 
-                          src={getMediaSrc(msg)}
+                          src={mediaSrc}
                           fileName={msg.meta?.fileName || 'Video'}
                        />
                    ) : isFile ? (
