@@ -9,6 +9,10 @@ import { CHUNK_SIZE } from './smart-core/config.js';
 
 // SmartCore facade: supports both legacy hook mode and pure API mode.
 
+function _safeJson(x) {
+  try { return JSON.stringify(x); } catch (_) { return String(x); }
+}
+
 class SmartCore {
   constructor() {
     this.mode = null; // FIXED: Initialize as null to ensure setMode works on init
@@ -147,6 +151,13 @@ class SmartCore {
   onSwMessage(event) {
     const data = event && event.data;
     if (!data) return;
+
+    // SW -> 页面日志桥：写入现有 LogConsole
+    if (data.type === 'SW_LOG') {
+      const extra = data.extra ? ` | ${_safeJson(data.extra)}` : '';
+      log(`🧩 SW ${data.msg}${extra}`);
+      return;
+    }
 
     if (data.type === 'PING') log('✅ SW 握手成功 (Core)');
     if (data.type === 'STREAM_OPEN') this.stream.handleStreamOpen(data, event.source);
