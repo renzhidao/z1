@@ -97,6 +97,14 @@ export function init() {
   window.activeTasks = new Map();
   window.activePlayer = null;
 
+  // === Video gating (no UI) ===
+  // 目标：没有点击就不允许视频触发 STREAM_OPEN（防止“没点也全下”）
+  window.__p1_armedVideos = window.__p1_armedVideos || new Set();
+  if (!window.smartCore.flags) window.smartCore.flags = { videoRequireClick: true };
+  window.smartCore.setFlags = (o = {}) => { try { Object.assign(window.smartCore.flags, o || {}); } catch(e) {} };
+  window.smartCore.armFile = (fileId) => { try { if (fileId) window.__p1_armedVideos.add(fileId); } catch(e) {} };
+
+
   // SMART_META pending map
   window.pendingMeta = new Map(); // id -> { scope, msg, targets: Map<pid,{acked,tries,timer}>, start, discoveryTimer }
 
@@ -242,6 +250,7 @@ export function init() {
       },
 
       download: (fileId, name) => {
+           try { window.smartCore && window.smartCore.armFile && window.smartCore.armFile(fileId); } catch(e) {}
           const meta = window.smartMetaCache.get(fileId) || {};
           const fileName = name || meta.fileName || 'file';
 
@@ -461,6 +470,20 @@ function checkTimeouts() {
 function handleStreamOpen(data, source) {
     const { requestId, fileId, range } = data;
 
+
+     // 视频 gating：必须 arm 后才允许打开（否则不点击也会被浏览器探测/预取触发下载）
+     try {
+         const meta = window.smartMetaCache && window.smartMetaCache.get(fileId);
+         const name = (meta && meta.fileName) || (window.virtualFiles && window.virtualFiles.get(fileId) && window.virtualFiles.get(fileId).name) || '';
+         const type = (meta && meta.fileType) || (window.virtualFiles && window.virtualFiles.get(fileId) && window.virtualFiles.get(fileId).type) || '';
+         const isVideo = (/\.(mp4|mov|m4v)$/i.test(name) || /^video\//.test(type));
+         const requireClick = !!(window.smartCore && window.smartCore.flags && window.smartCore.flags.videoRequireClick);
+         const armed = !!(window.__p1_armedVideos && window.__p1_armedVideos.has(fileId));
+         if (isVideo && requireClick && !armed) {
+             try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'Video not armed (click required)' }); } catch(e) {}
+             return;
+         }
+     } catch(e) {}
     if (window.virtualFiles.has(fileId)) {
         serveLocalBlob(fileId, requestId, range, source);
         return;
