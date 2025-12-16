@@ -141,6 +141,19 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     return url;
   };
 
+  // 关键修复：进入聊天时同步 Core 的 activeChat，否则协议层不会把消息路由到当前会话
+  useEffect(() => {
+    try {
+      if (window.state) {
+        window.state.activeChat = chat.id;
+        window.state.activeChatName = chat.user?.name || '';
+        if (window.state.unread && typeof window.state.unread === 'object') {
+          window.state.unread[chat.id] = 0;
+        }
+      }
+    } catch (_) {}
+  }, [chat.id]);
+
   // --- 核心逻辑注入：数据加载与监听 ---
   useEffect(() => {
     const processMessages = (msgs: any[]) => {
@@ -283,10 +296,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chat, onBack, currentUserId, on
     if (!file) return;
 
     // 关键修复：只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META
+    // 注意：SmartCore Hook 只拦截 kind==='file' 或 kind==='image'，所以视频也必须走 file
     // 避免“双卡片”
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
-    if (file.type.startsWith('video/')) kind = 'video';
 
     if (window.protocol) {
       window.protocol.sendMsg(null, kind, {

@@ -114,7 +114,7 @@
           // 1. Register Service Worker
           if ('serviceWorker' in navigator) {
              try {
-               await navigator.serviceWorker.register('./core/sw.js', { scope: './' });
+               await navigator.serviceWorker.register('./sw.js', { scope: './' });
                console.log('✅ SW Registered');
              } catch(err) {
                console.warn('⚠️ SW Registration Failed (Non-fatal):', err);
