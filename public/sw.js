@@ -1,3 +1,4 @@
+// P1-BUILD v2025-12-16-fix6
 const CACHE_NAME = 'p1-stream-v1765199409-p2'; // PATCH: Version Bump（确保 sw 更新生效）
 const CORE_ASSETS = [
   './',
@@ -183,7 +184,7 @@ async function handleVirtualHead(event, client, { fileId, fileName, rangeHeader 
   const requestId = Math.random().toString(36).slice(2) + Date.now();
 
   // 先发 OPEN
-  try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader, preview: !!isPreview }); } catch (e) {}
+  try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
 
   return new Promise(resolve => {
     const metaHandler = (e) => {
@@ -252,11 +253,15 @@ async function handleVirtualStream(event) {
   try { fileName = decodeURIComponent(segs.slice(1).join('/') || 'file'); }
   catch (e) { fileName = segs.slice(1).join('/') || 'file'; }
 
-  const reqUrl = new URL(event.request.url);
-  const isPreview = !!(reqUrl.searchParams && reqUrl.searchParams.has('p1_preview'));
   let rangeHeader = event.request.headers.get('Range');
-  // 预览：首次点击只取前 1MB，用来拿到首帧封面（后续会主动取消，不继续下载）
-  if (isPreview && !rangeHeader) rangeHeader = 'bytes=0-1048575';
+
+  // PREVIEW: 当 URL 带 ?p1_preview=1 时，强制只给首段 1MB（0-1048575）
+  try {
+    const u = new URL(event.request.url);
+    if (u.searchParams && u.searchParams.get('p1_preview') === '1') {
+      rangeHeader = 'bytes=0-1048575';
+    }
+  } catch (e) {}
 
   // PATCH: 处理 HEAD（媒体元素常见探测行为）
   if (event.request.method === 'HEAD') {
@@ -270,7 +275,7 @@ async function handleVirtualStream(event) {
     type: 'bytes',
     start(controller) {
       streamControllers.set(requestId, controller);
-      try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader, preview: !!isPreview }); } catch (e) {}
+      try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
     },
     cancel() {
       streamControllers.delete(requestId);

@@ -96,11 +96,8 @@ export function init() {
   window.remoteFiles = new Map();
   window.activeTasks = new Map();
   window.activePlayer = null;
-  // === Video gating (no UI) ===
-  // 目标：没有点击就不允许视频触发 STREAM_OPEN（防止“没点也全下”）
-  window.__p1_armedVideos = window.__p1_armedVideos || new Set();
-  window.__p1_scFlags = window.__p1_scFlags || { videoRequireClick: true };
-// SMART_META pending map
+
+  // SMART_META pending map
   window.pendingMeta = new Map(); // id -> { scope, msg, targets: Map<pid,{acked,tries,timer}>, start, discoveryTimer }
 
   if (navigator.serviceWorker) {
@@ -187,37 +184,25 @@ export function init() {
           const fileType = meta.fileType || '';
           const fileSize = meta.fileSize || 0;
 
-          // 本地文件直接播放
-          if (window.virtualFiles.has(fileId)) {
-               // 本地地址复用：同一个 fileId 永远同一个 blob URL，避免 UI 重渲染导致视频重载/重播
+          // 本地文件直接播放（无损优化：同一个 fileId 复用同一个 blob URL，避免 UI 触发 play() 多次导致视频闪烁/重播）
+           if (window.virtualFiles.has(fileId)) {
                try {
                    window.__p1_blobUrlCache = window.__p1_blobUrlCache || new Map();
                    const cached = window.__p1_blobUrlCache.get(fileId);
-                   if (cached) {
-                       log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
-                       return cached;
-                   }
+                   if (cached) return cached;
+
                    const fileObj = window.virtualFiles.get(fileId);
                    const url = URL.createObjectURL(fileObj);
                    window.__p1_blobUrlCache.set(fileId, url);
-                   // 简单上限，避免无限增长
-                   try {
-                       const MAX = 128;
-                       if (window.__p1_blobUrlCache.size > MAX) {
-                           const oldKey = window.__p1_blobUrlCache.keys().next().value;
-                           const oldUrl = window.__p1_blobUrlCache.get(oldKey);
-                           window.__p1_blobUrlCache.delete(oldKey);
-                           try { URL.revokeObjectURL(oldUrl); } catch(e) {}
-                       }
-                   } catch(e) {}
+
                    log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
                    return url;
                } catch(e) {
                    const url = URL.createObjectURL(window.virtualFiles.get(fileId));
-                   log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
                    return url;
                }
-           }// === 关键修改：接收方 play() 时不主动触发下载，只生成 URL 等待浏览器/用户请求 ===
+           }
+// === 关键修改：接收方 play() 时不主动触发下载，只生成 URL 等待浏览器/用户请求 ===
           // startDownloadTask(fileId); 
 
           const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
@@ -268,7 +253,6 @@ export function init() {
       },
 
       download: (fileId, name) => {
-           try { window.smartCore && window.smartCore.armFile && window.smartCore.armFile(fileId); } catch(e) {}
           const meta = window.smartMetaCache.get(fileId) || {};
           const fileName = name || meta.fileName || 'file';
 
@@ -326,21 +310,14 @@ export function init() {
       }
   };
 
-  
-  // === Video gating API (no UI) ===
-  // 注意：必须在 window.smartCore 对象已创建后再挂这些字段
-  window.__p1_armedVideos = window.__p1_armedVideos || new Set();
-  window.__p1_scFlags = window.__p1_scFlags || { videoRequireClick: true };
-
-  window.smartCore.flags = window.smartCore.flags || window.__p1_scFlags;
+  // === Runtime flags (no UI) ===
+  // videoTwoTapPlay=true: 接收方点击一次加载到首帧并停住（preload=metadata），再次点击播放才继续拉取
+  window.smartCore.flags = window.smartCore.flags || { videoTwoTapPlay: false };
   window.smartCore.setFlags = (o = {}) => {
       try { Object.assign(window.smartCore.flags, o || {}); } catch(e) {}
   };
-  window.smartCore.armFile = (fileId) => {
-      try { if (fileId) window.__p1_armedVideos.add(fileId); } catch(e) {}
-  };
 
-setInterval(checkTimeouts, 1000);
+  setInterval(checkTimeouts, 1000);
   setInterval(flushSendQueue, 100);
 }
 
@@ -485,7 +462,6 @@ function checkTimeouts() {
     const now = Date.now();
     window.activeTasks.forEach(task => {
         if (task.completed) return;
-     if (task.previewPaused && (!task.swRequests || task.swRequests.size === 0)) return;
         task.inflightTimestamps.forEach((ts, offset) => {
             if (now - ts > 3000) {
                 task.inflight.delete(offset);
@@ -503,34 +479,12 @@ function checkTimeouts() {
 function handleStreamOpen(data, source) {
     const { requestId, fileId, range } = data;
 
-
-     // 视频 gating：必须 arm 后才允许打开（否则不点击也会被浏览器探测/预取触发下载）
-     try {
-         const meta = window.smartMetaCache && window.smartMetaCache.get(fileId);
-         const name = (meta && meta.fileName) || (window.virtualFiles && window.virtualFiles.get(fileId) && window.virtualFiles.get(fileId).name) || '';
-         const type = (meta && meta.fileType) || (window.virtualFiles && window.virtualFiles.get(fileId) && window.virtualFiles.get(fileId).type) || '';
-         const isVideo = (/\.(mp4|mov|m4v)$/i.test(name) || /^video\//.test(type));
-         const requireClick = !!((window.smartCore && window.smartCore.flags && window.smartCore.flags.videoRequireClick) || (window.__p1_scFlags && window.__p1_scFlags.videoRequireClick));
-         const armed = !!(window.__p1_armedVideos && window.__p1_armedVideos.has(fileId));
-         const isMine = !!(
-             (window.virtualFiles && window.virtualFiles.has(fileId)) ||
-             (meta && window.state && meta.senderId && window.state.myId && meta.senderId === window.state.myId)
-         );
-
-         if (isVideo && requireClick && !isMine && !armed) {
-             try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'Video not armed (click required)' }); } catch(e) {}
-             return;
-         }
-     } catch(e) {}
     if (window.virtualFiles.has(fileId)) {
         serveLocalBlob(fileId, requestId, range, source);
         return;
     }
 
     let task = window.activeTasks.get(fileId);
-     // 解除预览暂停：第二次点击（非预览 STREAM_OPEN）继续正常下载/播放
-     try { if (task && task.previewPaused && !(data && data.preview)) task.previewPaused = false; } catch(e) {}
-
     if (!task) {
         startDownloadTask(fileId);
         task = window.activeTasks.get(fileId);
@@ -568,25 +522,8 @@ function handleStreamOpen(data, source) {
     if (start < 0) start = 0;
     if (end >= task.size) end = task.size - 1;
     if (end < start) end = start;
+    const isPreview = (String(range || '') === 'bytes=0-1048575');
     log(`📡 SW OPEN ${requestId}: range=${start}-${end} (${(end-start+1)} bytes)`);
-
-     // 预览请求：严格限制在当前 range 内，避免尾部探测/顺序补齐导致继续下载
-     try {
-         const reqObj = task.swRequests.get(requestId);
-         const isPreview = !!(reqObj && reqObj.preview);
-         if (isPreview) {
-             const endChunk = Math.floor(end / CHUNK_SIZE) * CHUNK_SIZE;
-             task.wantQueue = (task.wantQueue || []).filter(off => off >= 0 && off <= endChunk);
-             // 把 range 起点的块顶到最前
-             const first = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
-             if (!task.parts.has(first) && !task.inflight.has(first)) {
-                 const idx = task.wantQueue.indexOf(first);
-                 if (idx >= 0) task.wantQueue.splice(idx, 1);
-                 task.wantQueue.unshift(first);
-             }
-         }
-     } catch(e) {}
-
 
     source.postMessage({
         type: 'STREAM_META', requestId, fileId,
@@ -594,9 +531,34 @@ function handleStreamOpen(data, source) {
         start, end
     });
 
-    task.swRequests.set(requestId, { start, end, current: start, source, preview: !!(data && data.preview) });
+    task.swRequests.set(requestId, { start, end, current: start, source, isPreview });
 
     const reqChunkIndex = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
+    // PREVIEW: SW 预览请求（?p1_preview=1），只拉首段 1MB（首帧拿到后 UI 会立刻 cancel）
+    if (isPreview) {
+        task.previewOnly = true;
+        task.paused = false;
+
+        // 只拉当前 range 覆盖的块，不做尾部探测/顺序补齐
+        task.wantQueue = [];
+        try { task.inflight && task.inflight.clear(); } catch (_) {}
+        try { task.inflightTimestamps && task.inflightTimestamps.clear(); } catch (_) {}
+
+        const needStart = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
+        const needEnd   = Math.floor(end   / CHUNK_SIZE) * CHUNK_SIZE;
+        for (let off = needStart; off <= needEnd; off += CHUNK_SIZE) {
+            if (!task.parts.has(off) && !task.inflight.has(off) && !task.wantQueue.includes(off)) {
+                task.wantQueue.push(off);
+            }
+        }
+        task.nextOffset = needStart;
+        task.lastWanted = needEnd;
+    } else {
+        // 真正播放/下载：解除预览/暂停
+        task.previewOnly = false;
+        task.paused = false;
+
+
 
     // === 修复: 图片/音频极速加载优化 ===
     // 如果是小文件 (< 2MB) 或起播段，强制插队优先下载
@@ -616,6 +578,8 @@ function handleStreamOpen(data, source) {
         task.inflightTimestamps.clear();
         task.lastWanted = reqChunkIndex - CHUNK_SIZE;
     }
+    }
+
 
     processSwQueue(task);
     requestNextChunk(task);
@@ -670,22 +634,25 @@ function serveLocalBlob(fileId, requestId, range, source) {
 function handleStreamCancel(data) {
     const { requestId } = data;
     window.activeTasks.forEach(t => {
-        const _req = t.swRequests.get(requestId);
-       const _wasPreview = !!(_req && _req.preview);
-       t.swRequests.delete(requestId);
-       try {
-           if (_wasPreview && !t.completed && (!t.swRequests || t.swRequests.size === 0)) {
-               t.previewPaused = true;
-               t.wantQueue = [];
-               try { t.inflight && t.inflight.clear(); } catch(e) {}
-               try { t.inflightTimestamps && t.inflightTimestamps.clear(); } catch(e) {}
-               log(`⏸ 预览完成，暂停下载任务: ${t.fileId}`);
-           }
-       } catch(e) {}
+        const req = (t.swRequests && typeof t.swRequests.get === 'function') ? t.swRequests.get(requestId) : null;
+        const wasPreview = !!(req && req.isPreview);
+
+        try { t.swRequests && t.swRequests.delete(requestId); } catch (_) {}
+
+        // PREVIEW cancel：没有任何 SW 请求了就暂停任务，停止继续下载
+        if (wasPreview && t.swRequests && t.swRequests.size === 0 && !t.completed) {
+            t.previewOnly = false;
+            t.paused = true;
+            t.wantQueue = [];
+            try { t.inflight && t.inflight.clear(); } catch (_) {}
+            try { t.inflightTimestamps && t.inflightTimestamps.clear(); } catch (_) {}
+            log('⏸️ PREVIEW cancel -> pause task ' + t.fileId);
+        }
 
         if (t.completed) cleanupTask(t.fileId);
     });
 }
+
 
 function processSwQueue(task) {
     if (task.swRequests.size === 0) return;
@@ -713,8 +680,17 @@ function processSwQueue(task) {
 
                 if (req.current > req.end) {
                     req.source.postMessage({ type: 'STREAM_END', requestId: reqId });
+                const wasPreview = !!(req && req.isPreview);
                     task.swRequests.delete(reqId);
                     log(`🏁 SW END ${reqId}`);
+                    if (wasPreview && task.swRequests.size === 0 && !task.completed) {
+                        task.previewOnly = false;
+                        task.paused = true;
+                        task.wantQueue = [];
+                        try { task.inflight && task.inflight.clear(); } catch (_) {}
+                        try { task.inflightTimestamps && task.inflightTimestamps.clear(); } catch (_) {}
+                        log('⏸️ PREVIEW done -> pause task ' + task.fileId);
+                    }
                     if (task.completed) cleanupTask(task.fileId);
                     break;
                 }
@@ -738,7 +714,7 @@ function startDownloadTask(fileId) {
     const task = {
         fileId, size: meta.fileSize, fileType: fixedType,
         isVideo: /\.(mp4|mov|m4v)$/i.test((meta.fileName || '')) || /^video\//.test((fixedType || '')) || /mp4|quicktime/.test((fixedType || '')),
-        parts: new Map(), swRequests: new Map(), peers: [],
+        parts: new Map(), swRequests: new Map(), previewOnly: false, paused: false, peers: [],
         peerIndex: 0, nextOffset: 0, lastWanted: -CHUNK_SIZE,
         wantQueue: [], inflight: new Set(), inflightTimestamps: new Map(),
         completed: false
@@ -769,11 +745,13 @@ function startDownloadTask(fileId) {
 
 function requestNextChunk(task) {
     if (task.completed) return;
+    if (task.paused) return;
+    if (task.previewOnly) { dispatchRequests(task); return; }
     const desired = PARALLEL;
 
     task.swRequests.forEach(req => {
         let cursor = Math.floor(req.current / CHUNK_SIZE) * CHUNK_SIZE;
-        const limit = Math.min(cursor + PREFETCH_AHEAD, (req.end + 1));
+        const limit = cursor + PREFETCH_AHEAD;
         while (task.wantQueue.length < desired && cursor < limit && cursor < task.size) {
             if (!task.parts.has(cursor) && !task.inflight.has(cursor) && !task.wantQueue.includes(cursor)) {
                 task.wantQueue.push(cursor);
@@ -782,14 +760,7 @@ function requestNextChunk(task) {
         }
     });
 
-    const hasPreviewReq = (() => { try { return Array.from(task.swRequests.values()).some(r => r && r.preview); } catch(e) { return false; } })();
-if (hasPreviewReq) {
-    // 预览：只按 SW 当前 range 拉取，不做顺序补齐
-    dispatchRequests(task);
-    return;
-}
-
-while (task.wantQueue.length < desired) {
+    while (task.wantQueue.length < desired) {
         const off = Math.max(task.nextOffset, task.lastWanted + CHUNK_SIZE);
         if (off >= task.size) break;
         if (task.parts.has(off)) {

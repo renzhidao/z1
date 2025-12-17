@@ -159,224 +159,352 @@ const VoiceMessage: React.FC<{
 };
 
 // --- 辅助组件：视频消息 ---
-// 目标：不点击不下载；第一次点击只拿到首帧当封面并停止；第二次点击才继续拉取并播放
-const VideoMessage: React.FC<{
-  fileId?: string;
-  fileName: string;
-  getSrc: () => string;
-}> = ({ fileId, fileName, getSrc }) => {
-  const [phase, setPhase] = React.useState<'idle' | 'previewing' | 'ready' | 'playing'>('idle');
-  const [coverUrl, setCoverUrl] = React.useState<string>(''); // 首帧截图 dataURL
-  const [src, setSrc] = React.useState<string>('');          // 真正播放用 src（只有第二次点击才设置）
-  const vRef = React.useRef<HTMLVideoElement | null>(null);
 
-  const arm = () => {
+// P1_PREVIEW_POSTER: 接收方自动预览 1MB 抓首帧当封面；点封面才真正播放
+
+const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean }> = ({ src, fileName, isMe }) => {
+
+  const [poster, setPoster] = useState<string | null>(null);
+
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+
+
+  const withPreviewParam = (u: string) => {
+
     try {
-      if (fileId && (window as any).smartCore && (window as any).smartCore.armFile) {
-        (window as any).smartCore.armFile(fileId);
-      }
-    } catch (_) {}
-  };
 
-  const capture = () => {
-    try {
-      const v = vRef.current;
-      if (!v) return;
-      const w = v.videoWidth || 0;
-      const h = v.videoHeight || 0;
-      if (w <= 0 || h <= 0) return;
+      const url = new URL(u, window.location.href);
 
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.min(w, 480);
-      canvas.height = Math.max(1, Math.round((canvas.width / w) * h));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      url.searchParams.set('p1_preview', '1');
 
-      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL('image/jpeg', 0.85);
-      if (url && url.startsWith('data:image/')) setCoverUrl(url);
-    } catch (_) {}
-  };
+      return url.toString();
 
-  const stopPreview = () => {
-    try {
-      const v = vRef.current;
-      if (v) {
-        try { v.pause(); } catch (_) {}
-        try { v.removeAttribute('src'); } catch (_) {}
-        try { (v as any).src = ''; } catch (_) {}
-        try { v.load(); } catch (_) {}
-      }
-    } catch (_) {}
-  };
+    } catch (_) {
 
-  const startPreview = () => {
-    if (phase !== 'idle') return;
-    setPhase('previewing');
-    arm();
+      return u.includes('?') ? `${u}&p1_preview=1` : `${u}?p1_preview=1`;
 
-    const full = getSrc() || '';
-    const preview = full ? (full + (full.includes('?') ? '&' : '?') + 'p1_preview=1&r=' + Date.now()) : '';
-    if (!preview) {
-      setPhase('idle');
-      return;
     }
 
-    // 用隐藏 video 拉取预览（同一点击手势内允许 play）
-    setTimeout(() => {
-      try {
-        const v = vRef.current;
-        if (!v) return;
-        v.muted = true;
-        v.playsInline = true;
-        v.preload = 'auto';
-        v.src = preview;
-
-        const onData = () => {
-          try {
-            capture();
-          } catch (_) {}
-          // 拿到首帧后立即停止下载（清 src -> 触发 STREAM_CANCEL -> core 暂停任务）
-          stopPreview();
-          setPhase('ready');
-          v.removeEventListener('loadeddata', onData);
-        };
-
-        v.addEventListener('loadeddata', onData, { once: true });
-
-        // 触发解码拿首帧
-        const p = (v as any).play && (v as any).play();
-        if (p && p.catch) p.catch(() => {});
-      } catch (_) {
-        setPhase('idle');
-      }
-    }, 0);
   };
 
-  const startPlay = () => {
-    if (phase !== 'ready') return;
-    setPhase('playing');
-    arm();
 
-    const full = getSrc() || '';
-    if (!full) {
-      setPhase('ready');
-      return;
-    }
-    setSrc(full);
 
-    setTimeout(() => {
+  useEffect(() => {
+
+    // 发送方保持原样：不走预览/封面
+
+    if (isMe) return;
+
+    if (isPlaying) return;
+
+    if (!src || typeof src !== 'string' || !src.includes('virtual/file/')) return;
+
+
+
+    let cancelled = false;
+
+
+
+    // 清理上一次预览
+
+    try { cleanupRef.current && cleanupRef.current(); } catch (_) {}
+
+    cleanupRef.current = null;
+
+
+
+    const previewUrl = withPreviewParam(src);
+
+
+
+    const v = document.createElement('video');
+
+    v.muted = true;
+
+    (v as any).playsInline = true;
+
+    v.preload = 'auto';
+
+    v.src = previewUrl;
+
+    v.style.position = 'fixed';
+
+    v.style.left = '-9999px';
+
+    v.style.top = '-9999px';
+
+    v.style.width = '1px';
+
+    v.style.height = '1px';
+
+    v.style.opacity = '0';
+
+    document.body.appendChild(v);
+
+    try { v.load(); } catch (_) {}
+
+
+
+    const cleanup = () => {
+
+      try { v.pause(); } catch (_) {}
+
       try {
-        const v = vRef.current;
-        if (!v) return;
-        v.muted = false;
-        v.playsInline = true;
-        v.preload = 'auto';
-        // src 已由 state 写入
-        const p = (v as any).play && (v as any).play();
-        if (p && p.catch) p.catch(() => {});
+
+        v.removeAttribute('src');
+
+        (v as any).srcObject = null;
+
+        v.load();
+
       } catch (_) {}
-    }, 0);
-  };
 
-  // 未点击：显示占位（无首帧时）
-  if (phase === 'idle') {
+      try { v.parentNode && v.parentNode.removeChild(v); } catch (_) {}
+
+    };
+
+    cleanupRef.current = cleanup;
+
+
+
+    const grab = () => {
+
+      if (cancelled) return;
+
+      try {
+
+        const w = v.videoWidth || 240;
+
+        const h = v.videoHeight || 160;
+
+        const canvas = document.createElement('canvas');
+
+        canvas.width = w;
+
+        canvas.height = h;
+
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+
+          ctx.drawImage(v, 0, 0, w, h);
+
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+
+          if (!cancelled) setPoster(dataUrl);
+
+        }
+
+      } catch (_) {}
+
+      // 首帧拿到就立刻停下载
+
+      cleanup();
+
+    };
+
+
+
+    const onLoadedMeta = () => {
+
+      try {
+
+        const p = v.play();
+
+        if (p && typeof (p as any).then === 'function') {
+
+          (p as any).then(() => {
+
+            try { v.pause(); } catch (_) {}
+
+          }).catch(() => {});
+
+        }
+
+      } catch (_) {}
+
+      try { v.currentTime = 0; } catch (_) {}
+
+    };
+
+
+
+    const onLoadedData = () => grab();
+
+    const onSeeked = () => grab();
+
+    const onError = () => cleanup();
+
+
+
+    v.addEventListener('loadedmetadata', onLoadedMeta, { once: true } as any);
+
+    v.addEventListener('loadeddata', onLoadedData, { once: true } as any);
+
+    v.addEventListener('seeked', onSeeked, { once: true } as any);
+
+    v.addEventListener('error', onError, { once: true } as any);
+
+
+
+    return () => {
+
+      cancelled = true;
+
+      cleanup();
+
+    };
+
+  }, [src, isMe, isPlaying]);
+
+
+
+  // 发送方：保持原样直接显示 video（不走预览封面）
+
+  if (isMe) {
+
     return (
-      <div
-        className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 cursor-pointer"
-        style={{
-          background: coverUrl
-            ? `url(${coverUrl}) center/cover no-repeat`
-            : 'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
-        }}
-        onClick={startPreview}
-      >
-        <div className="w-[240px] h-[150px] flex flex-col items-center justify-center gap-2">
-          <div
-            className="w-10 h-10 rounded-full border-2 border-white/80 flex items-center justify-center text-white"
-            style={{ background: 'rgba(255,255,255,0.12)' }}
-          >
-            ▶
-          </div>
-          <div className="text-white/60 text-[10px]">点击加载首帧封面</div>
-        </div>
 
-        {/* 隐藏的预览 video：只有点了才会设置 src */}
-        <video ref={vRef} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} />
+      <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
 
-        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-          视频
-        </div>
-      </div>
-    );
-  }
+        <video
 
-  // 首帧封面就绪：第二次点击才真正播放与继续拉取
-  if (phase === 'ready') {
-    return (
-      <div
-        className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 cursor-pointer"
-        style={{
-          background: coverUrl
-            ? `url(${coverUrl}) center/cover no-repeat`
-            : 'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
-        }}
-        onClick={startPlay}
-        title={fileName}
-      >
-        <div className="w-[240px] h-[150px] flex flex-col items-center justify-center gap-2">
-          <div
-            className="w-10 h-10 rounded-full border-2 border-white/80 flex items-center justify-center text-white"
-            style={{ background: 'rgba(255,255,255,0.12)' }}
-          >
-            ▶
-          </div>
-          <div className="text-white/60 text-[10px]">再次点击播放（继续拉取）</div>
-        </div>
+          src={src}
 
-        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-          视频
-        </div>
-      </div>
-    );
-  }
+          controls
 
-  // playing：显示 video，封面遮罩直到 onPlaying 触发
-  return (
-    <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
-      <video
-        ref={vRef}
-        src={src}
-        controls
-        playsInline
-        preload="auto"
-        className="w-full max-h-[300px]"
-        onLoadedData={() => capture()}
-        onPlaying={() => {
-          // 起播后保持播放，封面不再遮挡
-        }}
-        onError={(e) => console.error('视频加载失败', e)}
-      />
+          playsInline
 
-      {coverUrl && (
-        <div
-          className="absolute inset-0"
-          style={{
-            background: `url(${coverUrl}) center/cover no-repeat`,
-            opacity: 0,
-            pointerEvents: 'none',
-          }}
+          className="w-full max-h-[300px]"
+
+          onError={(e) => console.error('Video load error', e)}
+
         />
+
+      </div>
+
+    );
+
+  }
+
+
+
+  // 接收方：点封面才真正播放
+
+  if (isPlaying) {
+
+    return (
+
+      <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
+
+        <video
+
+          src={src}
+
+          controls
+
+          autoPlay
+
+          playsInline
+
+          className="w-full max-h-[300px]"
+
+          onError={(e) => console.error('Video load error', e)}
+
+        />
+
+      </div>
+
+    );
+
+  }
+
+
+
+  return (
+
+    <div
+
+      className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black cursor-pointer select-none active:opacity-90"
+
+      onClick={(e) => {
+
+        e.stopPropagation();
+
+        try { cleanupRef.current && cleanupRef.current(); } catch (_) {}
+
+        cleanupRef.current = null;
+
+        setIsPlaying(true);
+
+      }}
+
+    >
+
+      {poster ? (
+
+        <img
+
+          src={poster}
+
+          alt={fileName || 'Video'}
+
+          className="w-full max-h-[300px] object-contain"
+
+          draggable={false}
+
+        />
+
+      ) : (
+
+        <div className="w-[240px] h-[160px] bg-black" />
+
       )}
 
-      <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-        视频
+
+
+      {/* play icon overlay (no text) */}
+
+      <div className="absolute inset-0 flex items-center justify-center">
+
+        <div className="w-12 h-12 rounded-full bg-black/40 flex items-center justify-center">
+
+          <div
+
+            style={{
+
+              width: 0,
+
+              height: 0,
+
+              borderTop: '10px solid transparent',
+
+              borderBottom: '10px solid transparent',
+
+              borderLeft: '16px solid rgba(255,255,255,0.95)',
+
+              marginLeft: '3px',
+
+            }}
+
+          />
+
+        </div>
+
       </div>
+
     </div>
+
   );
+
 };
 
 // --- 辅助组件：长按菜单项 ---
+
+
 const ContextMenuItem: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -881,7 +1009,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
             msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage;
           const isVoice = msg.kind === 'voice';
 
-          const mediaSrc = isImage ? getMediaSrc(msg) : '';
+          const mediaSrc = (isImage || isVideo) ? getMediaSrc(msg) : '';
 
           return (
             <div key={msg.id || idx} className="mb-4 relative">
@@ -987,27 +1115,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
                       />
                     </div>
                   ) : isVideo ? (
-                    isMe ? (
-                      <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
-                        <video
-                          src={getMediaSrc(msg)}
-                          controls
-                          playsInline
-                          preload="metadata"
-                          className="w-full max-h-[300px]"
-                          onError={(e) => console.error('视频加载失败', e)}
-                        />
-                        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-                          视频
-                        </div>
-                      </div>
-                    ) : (
-                      <VideoMessage
-                        fileId={msg.meta?.fileId}
-                        fileName={fileName || 'Video'}
-                        getSrc={() => getMediaSrc(msg)}
-                      />
-                    )
+                    <VideoMessage
+                      src={mediaSrc}
+                      fileName={fileName || 'Video'}
+                      isMe={isMe}
+                    />
                   ) : isFile ? (
                     <div
                       onClick={() => handleSmartFileDownload(msg)}

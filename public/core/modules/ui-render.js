@@ -34,11 +34,8 @@ export function init() {
     .chat-img.error {
         opacity: 0.3; border: 2px solid #ff3b30;
     }
-
     .media-cover {
-        width: 100%; height: 150px;
-        background: linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35));
-        border-radius: 4px;
+        width: 100%; height: 150px; background: #000; border-radius: 4px;
         display: flex; align-items: center; justify-content: center;
         cursor: pointer; position: relative;
     }
@@ -56,25 +53,21 @@ export function init() {
     .media-cover:hover .play-btn-overlay, .audio-cover:hover .play-btn-overlay {
         background: rgba(42, 124, 255, 0.8); border-color: transparent;
     }
-
-    .p1-video-overlay {
-        position:absolute; inset:0; border-radius:4px;
-        display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
-        background: linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35));
-        color:#e5e7eb; cursor:pointer;
-        transition: opacity .18s ease;
-    }
   `;
   document.head.appendChild(style);
 
+  // === 视频错误处理 + 环境检测 ===
   window.handleVideoError = function (el, fileName) {
     const src = (el && (el.currentSrc || el.src)) || '';
 
+    // 仅对虚拟流视频做自动重试
     if (src.includes('/virtual/file/')) {
       let retries = parseInt(el.dataset.retry || '0', 10);
       if (retries < 3) {
         el.dataset.retry = String(retries + 1);
-        if (window.monitor) window.monitor.warn('UI', `⚠️ 视频Error重试(${retries + 1})...`, { file: fileName, src });
+        if (window.monitor) {
+          window.monitor.warn('UI', `⚠️ 视频Error重试(${retries + 1})...`, { file: fileName, src });
+        }
         setTimeout(() => {
           const s = el.src;
           el.src = '';
@@ -85,7 +78,7 @@ export function init() {
       }
     }
 
-    try { el.style.display = 'none'; } catch (_) {}
+    el.style.display = 'none';
     const errDiv = el.parentElement && el.parentElement.querySelector('.video-error');
     if (errDiv) errDiv.style.display = 'block';
 
@@ -102,17 +95,45 @@ export function init() {
       }
     }
 
-    if (window.monitor) window.monitor.fatal('VIDEO', `❌ 视频挂了 [Code:${code}]: ${fileName}`, { msg, src });
+    if (window.monitor) {
+      window.monitor.fatal('VIDEO', `❌ 视频挂了 [Code:${code}]: ${fileName}`, { msg, src });
+
+      // 环境体检：常见 mp4/webm 支持情况
+      if (code === 4 || code === 3) {
+        const checks = [
+          'video/mp4; codecs="avc1.42E01E"',   // H.264 Baseline
+          'video/mp4; codecs="avc1.640028"',   // H.264 High
+          'video/mp4; codecs="hev1.1.6.L93.B0"', // H.265 (HEVC)
+          'video/webm; codecs="vp9"'
+        ];
+        const supportMsg = [];
+        try {
+          if ('MediaSource' in window) {
+            checks.forEach(mime => {
+              const res = MediaSource.isTypeSupported(mime);
+              const name = mime.includes('avc') ? 'H264' : mime.includes('hev') ? 'H265' : 'VP9';
+              supportMsg.push(`${name}:${res ? '✅' : '❌'}`);
+            });
+            window.monitor.warn('ENV', `环境解码体检: ${supportMsg.join(', ')}`);
+          } else {
+            window.monitor.error('ENV', '⚠️ 当前浏览器不支持 MediaSource API (无法流式播放)');
+          }
+        } catch (_) {}
+      }
+    }
   };
 
   window.handleImageError = function (el, fileName) {
     const src = (el && (el.currentSrc || el.src)) || '';
 
+    // === SW 启动延迟 / 抖动导致的 404：对虚拟流图片做自动重试 ===
     if (src.includes('/virtual/file/')) {
       let retries = parseInt(el.dataset.retry || '0', 10);
       if (retries < 3) {
         el.dataset.retry = String(retries + 1);
-        if (window.monitor) window.monitor.warn('UI', `⚠️ 图片加载失败，正在重试(${retries + 1}/3)...`, { file: fileName, src });
+        if (window.monitor) {
+          window.monitor.warn('UI', `⚠️ 图片加载失败，正在重试(${retries + 1}/3)...`, { file: fileName, src });
+        }
         setTimeout(() => {
           const s = el.src;
           el.src = '';
@@ -139,6 +160,7 @@ export function init() {
       reason = 'Blob已失效';
       report(reason);
     } else if (src.includes('/virtual/file/')) {
+      // 对虚拟流图片再做一次 HEAD 探测
       fetch(src, { method: 'HEAD' }).then(res => {
         reason = !res.ok ? `HTTP ${res.status}` : '数据损坏';
         report(reason);
@@ -149,7 +171,9 @@ export function init() {
     }
 
     function report(r) {
-      if (window.monitor) window.monitor.fatal('IMAGE', `❌ 图片挂了: ${fileName}`, { reason: r, src });
+      if (window.monitor) {
+        window.monitor.fatal('IMAGE', `❌ 图片挂了: ${fileName}`, { reason: r, src });
+      }
     }
   };
 
@@ -234,93 +258,68 @@ export function init() {
       if (box) box.innerHTML = '';
     },
 
-    // 点击封面才会调用这里；因此“不点击不下载”
+    // 懒加载媒体（点击播放时调用）
     loadRemoteMedia(msgId, fileId, fileName, type) {
       const container = document.getElementById(`media-box-${msgId}`);
       if (!container || !window.smartCore) return;
 
-      // 文件名不从 onclick 传（避免引号问题），优先从 metaCache 取
-      let rawName = '';
-      try {
-        const meta = window.smartMetaCache && window.smartMetaCache.get(fileId);
-        rawName = (fileName && String(fileName)) || (meta && meta.fileName) || 'file';
-      } catch (_) {
-        rawName = (fileName && String(fileName)) || 'file';
-      }
+      const streamUrl = window.smartCore.play(fileId, fileName);
+
+      // 避免文件名里包含引号导致 inline handler 断裂
+      const rawName = String(fileName || 'file');
+      const jsName = rawName.replace(/\/g, '\\').replace(/'/g, "\'");
       const safeName = window.util.escape(rawName);
-      const jsName = rawName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
-      // 允许视频被 SW 打开（防止任何“未点击也预取”的意外）
-      try { window.smartCore.armFile && window.smartCore.armFile(fileId); } catch (_) {}
-
-      const streamUrl = window.smartCore.play(fileId, rawName);
+      // 开关：默认关闭。开启后视频第一次点击只“出封面/首帧”（尽量少拉取），再点击才真正播放
+      const twoTap = !!(window.smartCore && window.smartCore.flags && window.smartCore.flags.videoTwoTapPlay);
 
       if (type === 'video') {
         const vidId = `p1_vid_${msgId}`;
-        const ovId = `p1_ov_${msgId}`;
+        const autoplayAttr = twoTap ? '' : 'autoplay';
+        const preloadAttr = twoTap ? 'metadata' : 'auto';
+        const onMeta = twoTap ? `onloadedmetadata="try{this.currentTime=0.01}catch(e){}"` : '';
+        const overlay = twoTap ? `
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;background:rgba(0,0,0,0.15)"
+                 onclick="(function(el){var v=document.getElementById('${vidId}'); if(v){try{v.preload='auto'; v.play();}catch(e){}} el.style.display='none';})(this)">
+              <div class="play-btn-overlay">▶</div>
+            </div>
+        ` : '';
 
         container.innerHTML = `
-          <div style="font-weight:bold;color:#4ea8ff">🎬 ${safeName}</div>
-          <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在播放中...</div>
+             <div style="font-weight:bold;color:#4ea8ff">🎬 ${safeName}</div>
+             <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (${twoTap ? '预览' : '流式直连'})</div>
 
-          <div style="position:relative">
-            <video id="${vidId}" controls preload="metadata" playsinline
-                   style="width:100%;max-width:300px;background:#000;border-radius:4px"
-                   onerror="window.handleVideoError(this, '${jsName}')"></video>
+             <div style="position:relative">
+               <video id="${vidId}" controls ${autoplayAttr} preload="${preloadAttr}" src="${streamUrl}"
+                      style="width:100%;max-width:300px;background:#000;border-radius:4px"
+                      ${onMeta}
+                      onerror="window.handleVideoError(this, '${jsName}')"></video>
+               ${overlay}
+             </div>
 
-            <div id="${ovId}" class="p1-video-overlay">
-              <div class="play-btn-overlay">▶</div>
-              <div style="font-size:10px;opacity:.75">缓冲中...</div>
-            </div>
-          </div>
-
-          <div class="video-error" style="display:none">
-            ❌ 视频加载失败<br><span style="font-size:10px">请查看诊断面板获取错误码</span>
-          </div>
-          <div style="text-align:right;margin-top:4px">
-            <a href="javascript:void(0)" onclick="window.smartCore.download('${fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
-          </div>
-        `;
-
-        try {
-          const v = container.querySelector(`#${vidId}`);
-          const ov = container.querySelector(`#${ovId}`);
-          if (v) v.src = streamUrl;
-
-          const startPlay = () => { try { v && v.play && v.play(); } catch (_) {} };
-          if (ov) ov.addEventListener('click', startPlay);
-
-          // 点一次就播放（同一用户手势栈内）
-          startPlay();
-
-          // 首帧数据到达再淡出遮罩，避免黑屏
-          if (v) v.addEventListener('loadeddata', () => {
-            try {
-              if (ov) {
-                ov.style.opacity = '0';
-                setTimeout(() => { try { ov.remove(); } catch (_) {} }, 200);
-              }
-            } catch (_) {}
-          }, { once: true });
-        } catch (_) {}
-
+             <div class="video-error" style="display:none">
+                ❌ 视频加载失败<br><span style="font-size:10px">请查看诊断面板获取错误码</span>
+             </div>
+             <div style="text-align:right;margin-top:4px">
+                 <a href="javascript:void(0)" onclick="window.smartCore.download('${fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
+             </div>`;
         return;
       }
 
       if (type === 'audio') {
         container.innerHTML = `
-          <div style="font-weight:bold;color:#4ea8ff">🎵 ${safeName}</div>
-          <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (流式音频)</div>
-          <audio controls autoplay src="${streamUrl}"
-                 style="width:100%;max-width:260px;height:40px;margin-top:4px"
-                 onerror="window.handleVideoError(this, '${jsName}')"></audio>
-          <div class="video-error" style="display:none">❌ 加载失败</div>
-          <div style="text-align:right;margin-top:4px">
-            <a href="javascript:void(0)" onclick="window.smartCore.download('${fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
-          </div>
-        `;
+             <div style="font-weight:bold;color:#4ea8ff">🎵 ${safeName}</div>
+             <div style="font-size:11px;color:#aaa;margin-bottom:8px">正在加载... (流式音频)</div>
+             <audio controls autoplay src="${streamUrl}"
+                    style="width:100%;max-width:260px;height:40px;margin-top:4px"
+                    onerror="window.handleVideoError(this, '${jsName}')"></audio>
+             <div class="video-error" style="display:none">❌ 加载失败</div>
+             <div style="text-align:right;margin-top:4px">
+                 <a href="javascript:void(0)" onclick="window.smartCore.download('${fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
+             </div>`;
         return;
       }
+
     },
 
     appendMsg(m) {
@@ -359,32 +358,55 @@ export function init() {
             </div>`;
             style = 'background:transparent;padding:0;border:none';
           } else if (isVideo) {
-            // ✅ 关键：视频一律不自动请求，不设 src，只显示封面；点击才 loadRemoteMedia
-            content = `
-              <div class="stream-card" id="media-box-${m.id}">
-                <div style="font-weight:bold;color:#4ea8ff">🎬 ${safeName}</div>
-                <div style="font-size:11px;color:#aaa;margin-bottom:8px">${sizeStr} (点击播放)</div>
-                <div class="media-cover" onclick="window.ui.loadRemoteMedia('${m.id}', '${meta.fileId}', '', 'video')">
-                  <div class="play-btn-overlay">▶</div>
-                </div>
-                <div style="text-align:right;margin-top:4px">
-                  <a href="javascript:void(0)" onclick="window.smartCore.download('${meta.fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
-                </div>
+            if (isMe) {
+              const streamUrl = window.smartCore.play(meta.fileId, meta.fileName);
+              content = `
+              <div class="stream-card">
+                  <div style="font-weight:bold;color:#4ea8ff">🎬 ${safeName}</div>
+                  <div style="font-size:11px;color:#aaa;margin-bottom:8px">${sizeStr} (本地预览)</div>
+                  <video controls src="${streamUrl}" 
+                         style="width:100%;max-width:300px;background:#000;border-radius:4px"
+                         onerror="window.handleVideoError(this, '${safeName}')"></video>
               </div>`;
+            } else {
+              content = `
+              <div class="stream-card" id="media-box-${m.id}">
+                  <div style="font-weight:bold;color:#4ea8ff">🎬 ${safeName}</div>
+                  <div style="font-size:11px;color:#aaa;margin-bottom:8px">${sizeStr} (点击播放)</div>
+                  <div class="media-cover" onclick="window.ui.loadRemoteMedia('${m.id}', '${meta.fileId}', '${window.util.escape(meta.fileName)}', 'video')">
+                      <div class="play-btn-overlay">▶</div>
+                  </div>
+                  <div style="text-align:right;margin-top:4px">
+                      <a href="javascript:void(0)" onclick="window.smartCore.download('${meta.fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
+                  </div>
+              </div>`;
+            }
             style = 'background:transparent;padding:0;border:none';
           } else if (isAudio) {
-            content = `
-              <div class="stream-card" id="media-box-${m.id}">
-                <div style="font-weight:bold;color:#4ea8ff">🎵 ${safeName}</div>
-                <div style="font-size:11px;color:#aaa;margin-bottom:8px">${sizeStr} (点击播放)</div>
-                <div class="audio-cover" onclick="window.ui.loadRemoteMedia('${m.id}', '${meta.fileId}', '', 'audio')">
-                  <div class="play-btn-overlay" style="width:30px;height:30px;font-size:14px">▶</div>
-                  <span style="margin-left:10px;color:#888;font-size:12px">点击加载音频</span>
-                </div>
-                <div style="text-align:right;margin-top:4px">
-                  <a href="javascript:void(0)" onclick="window.smartCore.download('${meta.fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
-                </div>
+            if (isMe) {
+              const streamUrl = window.smartCore.play(meta.fileId, meta.fileName);
+              content = `
+              <div class="stream-card">
+                  <div style="font-weight:bold;color:#4ea8ff">🎵 ${safeName}</div>
+                  <div style="font-size:11px;color:#aaa;margin-bottom:8px">${sizeStr} (本地预览)</div>
+                  <audio controls src="${streamUrl}" 
+                         style="width:100%;max-width:260px;height:40px;margin-top:4px"
+                         onerror="window.handleVideoError(this, '${safeName}')"></audio>
               </div>`;
+            } else {
+              content = `
+              <div class="stream-card" id="media-box-${m.id}">
+                  <div style="font-weight:bold;color:#4ea8ff">🎵 ${safeName}</div>
+                  <div style="font-size:11px;color:#aaa;margin-bottom:8px">${sizeStr} (点击播放)</div>
+                  <div class="audio-cover" onclick="window.ui.loadRemoteMedia('${m.id}', '${meta.fileId}', '${window.util.escape(meta.fileName)}', 'audio')">
+                      <div class="play-btn-overlay" style="width:30px;height:30px;font-size:14px">▶</div>
+                      <span style="margin-left:10px;color:#888;font-size:12px">点击加载音频</span>
+                  </div>
+                  <div style="text-align:right;margin-top:4px">
+                      <a href="javascript:void(0)" onclick="window.smartCore.download('${meta.fileId}','${safeName}')" style="color:#aaa;font-size:10px;text-decoration:none">⬇ 保存本地</a>
+                  </div>
+              </div>`;
+            }
             style = 'background:transparent;padding:0;border:none';
           } else {
             content = `
@@ -400,6 +422,7 @@ export function init() {
           }
         }
       } else if (m.kind === CHAT.KIND_IMAGE) {
+        // 旧版普通图片（非 SMART_FILE_UI）
         content = `<img src="${m.txt}" class="chat-img" style="min-height:50px; background:#222;" onerror="window.handleImageError(this, '普通图片')">`;
         style = 'background:transparent;padding:0';
       } else {
