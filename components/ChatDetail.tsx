@@ -1412,16 +1412,23 @@ const normalizeVirtualUrl = (url: string) => {
 
       {voiceRecording && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
-           <div className="absolute inset-0 bg-black/40"></div><div className="relative bg-[#95EC69] w-[180px] h-[180px] rounded-[16px] flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200">
+           <div className="absolute inset-0 bg-black/40"></div>
+           <style>{`
+             @keyframes voice-wave {
+               0% { height: 12px; }
+               100% { height: 36px; }
+             }
+           `}</style>
+           <div className="relative bg-[#95EC69] w-[180px] h-[180px] rounded-[16px] flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200">
               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#95EC69] rotate-45"></div>
               <div className="flex items-center gap-1.5 h-12 mb-4">
                   {[1,2,3,4,5,6,7].map(i => (
                     <div 
                       key={i} 
-                      className="w-1.5 bg-[#191919] rounded-full animate-pulse"
-                      style={{ 
-                        height: `${Math.random() * 24 + 12}px`,
-                        animationDuration: `${Math.random() * 0.3 + 0.2}s`
+                      className="w-1.5 bg-[#191919] rounded-full"
+                      style={{
+                        animation: `voice-wave ${0.4 + Math.random() * 0.4}s ease-in-out infinite alternate`,
+                        animationDelay: `${Math.random() * 0.2}s`
                       }}
                     ></div>
                   ))}
