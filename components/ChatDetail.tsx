@@ -592,7 +592,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const voiceStartTimeRef = useRef<number>(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pressToRecordRef = useRef<boolean>(false);
+  const recordReqIdRef = useRef<number>(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -809,10 +811,33 @@ const normalizeVirtualUrl = (url: string) => {
   // --- 录音 ---
 const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
+
+    // 防止 touch/mouse 双触发 + getUserMedia 异步竞态
+    if (pressToRecordRef.current) return;
+    pressToRecordRef.current = true;
+    const reqId = ++recordReqIdRef.current;
+
     setVoiceRecording(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+
+      // 如果已经松手/取消：立刻结束，不进入录音
+      if (!pressToRecordRef.current || reqId !== recordReqIdRef.current) {
+        try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+        setVoiceRecording(false);
+        return;
+      }
+      const mimeCandidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+      let mimeType = '';
+      try {
+        for (const m of mimeCandidates) {
+          if ((MediaRecorder as any).isTypeSupported && (MediaRecorder as any).isTypeSupported(m)) { mimeType = m; break; }
+        }
+      } catch (_) {}
+
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType } as any)
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       voiceStartTimeRef.current = Date.now();
@@ -821,19 +846,32 @@ const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       mediaRecorder.onstop = async () => {
-        const duration = Math.round(
-          (Date.now() - voiceStartTimeRef.current) / 1000,
-        );
-        if (duration < 1) {
+        try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+        mediaRecorderRef.current = null;
+        pressToRecordRef.current = false;
+        try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+        mediaRecorderRef.current = null;
+        pressToRecordRef.current = false;
+        const ms = Date.now() - voiceStartTimeRef.current;
+        const duration = Math.max(1, Math.round(ms / 1000));
+
+        const blobType = mimeType || (mediaRecorder as any).mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: blobType });
+
+        if (!audioBlob || audioBlob.size <= 0) {
+          onShowToast('录音失败，请重试');
+          return;
+        }
+        if (ms < 600) {
           onShowToast('说话时间太短');
           return;
         }
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: 'audio/webm',
-        });
-        const file = new File([audioBlob], `voice_${Date.now()}.webm`, {
-          type: 'audio/webm',
-        });
+
+        const ext =
+          blobType.includes('mp4') ? 'mp4' :
+          blobType.includes('webm') ? 'webm' : 'bin';
+
+        const file = new File([audioBlob], `voice_${Date.now()}.${ext}`, { type: blobType });
 
         if (window.protocol) {
           window.protocol.sendMsg(String(duration), 'voice' as any, { duration,
@@ -844,9 +882,10 @@ const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
           });
         }
       };
-mediaRecorder.start();
+  try { mediaRecorder.start(200); } catch (_) { mediaRecorder.start(); }
     } catch (err) {
       console.error(err);
+      pressToRecordRef.current = false;
       setVoiceRecording(false);
       onShowToast('无法访问麦克风');
     }
@@ -854,13 +893,14 @@ mediaRecorder.start();
 
 const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
-    if (mediaRecorderRef.current && voiceRecording) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream
-        .getTracks()
-        .forEach((track) => track.stop());
-    }
+    pressToRecordRef.current = false;
     setVoiceRecording(false);
+
+    const mr = mediaRecorderRef.current;
+    if (!mr) return;
+
+    try { (mr as any).requestData && (mr as any).requestData(); } catch (_) {}
+    try { if ((mr as any).state && (mr as any).state !== 'inactive') mr.stop(); } catch (_) {}
   };
 
   // --- 文件选择 ---
@@ -1416,8 +1456,8 @@ const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
            <div className="absolute inset-0 bg-black/40"></div>
            <style>{`
              @keyframes voice-wave {
-               0% { height: 12px; }
-               100% { height: 36px; }
+               0%, 100% { transform: scaleY(0.25); opacity: 0.55; }
+               50% { transform: scaleY(1); opacity: 1; }
              }
            `}</style>
            <div className="relative bg-[#95EC69] w-[180px] h-[180px] rounded-[16px] flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200">
@@ -1428,8 +1468,11 @@ const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
                       key={i} 
                       className="w-1.5 bg-[#191919] rounded-full"
                       style={{
-                        animation: `voice-wave ${0.4 + Math.random() * 0.4}s ease-in-out infinite alternate`,
-                        animationDelay: `${Math.random() * 0.2}s`
+                        height: '32px',
+                        transformOrigin: 'center bottom',
+                        willChange: 'transform',
+                        animation: `voice-wave ${0.45 + Math.random() * 0.55}s ease-in-out infinite`,
+                        animationDelay: `${Math.random() * 0.18}s`,
                       }}
                     ></div>
                   ))}
