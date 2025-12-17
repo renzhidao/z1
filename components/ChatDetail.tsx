@@ -159,17 +159,16 @@ const VoiceMessage: React.FC<{
 };
 
 // --- 辅助组件：视频消息 ---
-// 目标：未点击不触发下载；点击后先 armFile 再设置 src 并播放；封面用“首帧截图”
+// 目标：不点击不下载；第一次点击只拿到首帧当封面并停止；第二次点击才继续拉取并播放
 const VideoMessage: React.FC<{
   fileId?: string;
   fileName: string;
   getSrc: () => string;
 }> = ({ fileId, fileName, getSrc }) => {
-  const [src, setSrc] = React.useState<string>('');
-  const [coverUrl, setCoverUrl] = React.useState<string>(''); // 首帧截图（dataURL）
-  const [showCover, setShowCover] = React.useState<boolean>(true);
+  const [phase, setPhase] = React.useState<'idle' | 'previewing' | 'ready' | 'playing'>('idle');
+  const [coverUrl, setCoverUrl] = React.useState<string>(''); // 首帧截图 dataURL
+  const [src, setSrc] = React.useState<string>('');          // 真正播放用 src（只有第二次点击才设置）
   const vRef = React.useRef<HTMLVideoElement | null>(null);
-  const startedRef = React.useRef(false);
 
   const arm = () => {
     try {
@@ -179,7 +178,7 @@ const VideoMessage: React.FC<{
     } catch (_) {}
   };
 
-  const captureFirstFrame = () => {
+  const capture = () => {
     try {
       const v = vRef.current;
       if (!v) return;
@@ -190,7 +189,6 @@ const VideoMessage: React.FC<{
       const canvas = document.createElement('canvas');
       canvas.width = Math.min(w, 480);
       canvas.height = Math.max(1, Math.round((canvas.width / w) * h));
-
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -200,30 +198,89 @@ const VideoMessage: React.FC<{
     } catch (_) {}
   };
 
-  const start = () => {
-    if (startedRef.current) {
-      try { vRef.current && (vRef.current as any).play && (vRef.current as any).play(); } catch (_) {}
-      return;
-    }
-    startedRef.current = true;
+  const stopPreview = () => {
+    try {
+      const v = vRef.current;
+      if (v) {
+        try { v.pause(); } catch (_) {}
+        try { v.removeAttribute('src'); } catch (_) {}
+        try { (v as any).src = ''; } catch (_) {}
+        try { v.load(); } catch (_) {}
+      }
+    } catch (_) {}
+  };
 
+  const startPreview = () => {
+    if (phase !== 'idle') return;
+    setPhase('previewing');
     arm();
 
-    if (!src) {
-      const u = getSrc();
-      setSrc(u || '');
+    const full = getSrc() || '';
+    const preview = full ? (full + (full.includes('?') ? '&' : '?') + 'p1_preview=1&r=' + Date.now()) : '';
+    if (!preview) {
+      setPhase('idle');
+      return;
     }
 
-    // 尝试同一用户手势内播放
+    // 用隐藏 video 拉取预览（同一点击手势内允许 play）
     setTimeout(() => {
       try {
-        vRef.current && (vRef.current as any).play && (vRef.current as any).play();
+        const v = vRef.current;
+        if (!v) return;
+        v.muted = true;
+        v.playsInline = true;
+        v.preload = 'auto';
+        v.src = preview;
+
+        const onData = () => {
+          try {
+            capture();
+          } catch (_) {}
+          // 拿到首帧后立即停止下载（清 src -> 触发 STREAM_CANCEL -> core 暂停任务）
+          stopPreview();
+          setPhase('ready');
+          v.removeEventListener('loadeddata', onData);
+        };
+
+        v.addEventListener('loadeddata', onData, { once: true });
+
+        // 触发解码拿首帧
+        const p = (v as any).play && (v as any).play();
+        if (p && p.catch) p.catch(() => {});
+      } catch (_) {
+        setPhase('idle');
+      }
+    }, 0);
+  };
+
+  const startPlay = () => {
+    if (phase !== 'ready') return;
+    setPhase('playing');
+    arm();
+
+    const full = getSrc() || '';
+    if (!full) {
+      setPhase('ready');
+      return;
+    }
+    setSrc(full);
+
+    setTimeout(() => {
+      try {
+        const v = vRef.current;
+        if (!v) return;
+        v.muted = false;
+        v.playsInline = true;
+        v.preload = 'auto';
+        // src 已由 state 写入
+        const p = (v as any).play && (v as any).play();
+        if (p && p.catch) p.catch(() => {});
       } catch (_) {}
     }, 0);
   };
 
-  // 未点击：不设 src，不会触发 /virtual/file/ 请求
-  if (!src) {
+  // 未点击：显示占位（无首帧时）
+  if (phase === 'idle') {
     return (
       <div
         className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 cursor-pointer"
@@ -232,7 +289,7 @@ const VideoMessage: React.FC<{
             ? `url(${coverUrl}) center/cover no-repeat`
             : 'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
         }}
-        onClick={start}
+        onClick={startPreview}
       >
         <div className="w-[240px] h-[150px] flex flex-col items-center justify-center gap-2">
           <div
@@ -241,20 +298,12 @@ const VideoMessage: React.FC<{
           >
             ▶
           </div>
-          <div
-            className="text-white/90 text-[12px] px-3 text-center"
-            style={{
-              maxWidth: '92%',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-            title={fileName}
-          >
-            {fileName}
-          </div>
-          <div className="text-white/60 text-[10px]">点击播放</div>
+          <div className="text-white/60 text-[10px]">点击加载首帧封面</div>
         </div>
+
+        {/* 隐藏的预览 video：只有点了才会设置 src */}
+        <video ref={vRef} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} />
+
         <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
           视频
         </div>
@@ -262,6 +311,37 @@ const VideoMessage: React.FC<{
     );
   }
 
+  // 首帧封面就绪：第二次点击才真正播放与继续拉取
+  if (phase === 'ready') {
+    return (
+      <div
+        className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 cursor-pointer"
+        style={{
+          background: coverUrl
+            ? `url(${coverUrl}) center/cover no-repeat`
+            : 'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
+        }}
+        onClick={startPlay}
+        title={fileName}
+      >
+        <div className="w-[240px] h-[150px] flex flex-col items-center justify-center gap-2">
+          <div
+            className="w-10 h-10 rounded-full border-2 border-white/80 flex items-center justify-center text-white"
+            style={{ background: 'rgba(255,255,255,0.12)' }}
+          >
+            ▶
+          </div>
+          <div className="text-white/60 text-[10px]">再次点击播放（继续拉取）</div>
+        </div>
+
+        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+          视频
+        </div>
+      </div>
+    );
+  }
+
+  // playing：显示 video，封面遮罩直到 onPlaying 触发
   return (
     <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
       <video
@@ -269,39 +349,24 @@ const VideoMessage: React.FC<{
         src={src}
         controls
         playsInline
-        preload="metadata"
+        preload="auto"
         className="w-full max-h-[300px]"
-        onLoadedData={() => {
-          captureFirstFrame();
-          setShowCover(true);
+        onLoadedData={() => capture()}
+        onPlaying={() => {
+          // 起播后保持播放，封面不再遮挡
         }}
-        onPlaying={() => setShowCover(false)}
-        onClick={(e) => e.stopPropagation()}
         onError={(e) => console.error('视频加载失败', e)}
       />
 
-      {showCover && (
+      {coverUrl && (
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center gap-2 cursor-pointer"
+          className="absolute inset-0"
           style={{
-            background: coverUrl
-              ? `url(${coverUrl}) center/cover no-repeat`
-              : 'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
-            transition: 'opacity .18s ease',
+            background: `url(${coverUrl}) center/cover no-repeat`,
+            opacity: 0,
+            pointerEvents: 'none',
           }}
-          onClick={(e) => {
-            e.stopPropagation();
-            start();
-          }}
-        >
-          <div
-            className="w-10 h-10 rounded-full border-2 border-white/80 flex items-center justify-center text-white"
-            style={{ background: 'rgba(255,255,255,0.12)' }}
-          >
-            ▶
-          </div>
-          <div className="text-white/70 text-[10px]">缓冲中…</div>
-        </div>
+        />
       )}
 
       <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">

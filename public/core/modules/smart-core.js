@@ -189,12 +189,35 @@ export function init() {
 
           // 本地文件直接播放
           if (window.virtualFiles.has(fileId)) {
-              const url = URL.createObjectURL(window.virtualFiles.get(fileId));
-              log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
-              return url;
-          }
-
-          // === 关键修改：接收方 play() 时不主动触发下载，只生成 URL 等待浏览器/用户请求 ===
+               // 本地地址复用：同一个 fileId 永远同一个 blob URL，避免 UI 重渲染导致视频重载/重播
+               try {
+                   window.__p1_blobUrlCache = window.__p1_blobUrlCache || new Map();
+                   const cached = window.__p1_blobUrlCache.get(fileId);
+                   if (cached) {
+                       log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
+                       return cached;
+                   }
+                   const fileObj = window.virtualFiles.get(fileId);
+                   const url = URL.createObjectURL(fileObj);
+                   window.__p1_blobUrlCache.set(fileId, url);
+                   // 简单上限，避免无限增长
+                   try {
+                       const MAX = 128;
+                       if (window.__p1_blobUrlCache.size > MAX) {
+                           const oldKey = window.__p1_blobUrlCache.keys().next().value;
+                           const oldUrl = window.__p1_blobUrlCache.get(oldKey);
+                           window.__p1_blobUrlCache.delete(oldKey);
+                           try { URL.revokeObjectURL(oldUrl); } catch(e) {}
+                       }
+                   } catch(e) {}
+                   log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
+                   return url;
+               } catch(e) {
+                   const url = URL.createObjectURL(window.virtualFiles.get(fileId));
+                   log(`▶️ 本地Blob播放 ${fileName} (${fmtMB(fileSize)}) type=${fileType}`);
+                   return url;
+               }
+           }// === 关键修改：接收方 play() 时不主动触发下载，只生成 URL 等待浏览器/用户请求 ===
           // startDownloadTask(fileId); 
 
           const hasSW = navigator.serviceWorker && navigator.serviceWorker.controller;
@@ -462,6 +485,7 @@ function checkTimeouts() {
     const now = Date.now();
     window.activeTasks.forEach(task => {
         if (task.completed) return;
+     if (task.previewPaused && (!task.swRequests || task.swRequests.size === 0)) return;
         task.inflightTimestamps.forEach((ts, offset) => {
             if (now - ts > 3000) {
                 task.inflight.delete(offset);
@@ -504,6 +528,9 @@ function handleStreamOpen(data, source) {
     }
 
     let task = window.activeTasks.get(fileId);
+     // 解除预览暂停：第二次点击（非预览 STREAM_OPEN）继续正常下载/播放
+     try { if (task && task.previewPaused && !(data && data.preview)) task.previewPaused = false; } catch(e) {}
+
     if (!task) {
         startDownloadTask(fileId);
         task = window.activeTasks.get(fileId);
@@ -543,13 +570,31 @@ function handleStreamOpen(data, source) {
     if (end < start) end = start;
     log(`📡 SW OPEN ${requestId}: range=${start}-${end} (${(end-start+1)} bytes)`);
 
+     // 预览请求：严格限制在当前 range 内，避免尾部探测/顺序补齐导致继续下载
+     try {
+         const reqObj = task.swRequests.get(requestId);
+         const isPreview = !!(reqObj && reqObj.preview);
+         if (isPreview) {
+             const endChunk = Math.floor(end / CHUNK_SIZE) * CHUNK_SIZE;
+             task.wantQueue = (task.wantQueue || []).filter(off => off >= 0 && off <= endChunk);
+             // 把 range 起点的块顶到最前
+             const first = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
+             if (!task.parts.has(first) && !task.inflight.has(first)) {
+                 const idx = task.wantQueue.indexOf(first);
+                 if (idx >= 0) task.wantQueue.splice(idx, 1);
+                 task.wantQueue.unshift(first);
+             }
+         }
+     } catch(e) {}
+
+
     source.postMessage({
         type: 'STREAM_META', requestId, fileId,
         fileSize: task.size, fileType: task.fileType || 'application/octet-stream',
         start, end
     });
 
-    task.swRequests.set(requestId, { start, end, current: start, source });
+    task.swRequests.set(requestId, { start, end, current: start, source, preview: !!(data && data.preview) });
 
     const reqChunkIndex = Math.floor(start / CHUNK_SIZE) * CHUNK_SIZE;
 
@@ -625,7 +670,19 @@ function serveLocalBlob(fileId, requestId, range, source) {
 function handleStreamCancel(data) {
     const { requestId } = data;
     window.activeTasks.forEach(t => {
-        t.swRequests.delete(requestId);
+        const _req = t.swRequests.get(requestId);
+       const _wasPreview = !!(_req && _req.preview);
+       t.swRequests.delete(requestId);
+       try {
+           if (_wasPreview && !t.completed && (!t.swRequests || t.swRequests.size === 0)) {
+               t.previewPaused = true;
+               t.wantQueue = [];
+               try { t.inflight && t.inflight.clear(); } catch(e) {}
+               try { t.inflightTimestamps && t.inflightTimestamps.clear(); } catch(e) {}
+               log(`⏸ 预览完成，暂停下载任务: ${t.fileId}`);
+           }
+       } catch(e) {}
+
         if (t.completed) cleanupTask(t.fileId);
     });
 }
@@ -716,7 +773,7 @@ function requestNextChunk(task) {
 
     task.swRequests.forEach(req => {
         let cursor = Math.floor(req.current / CHUNK_SIZE) * CHUNK_SIZE;
-        const limit = cursor + PREFETCH_AHEAD;
+        const limit = Math.min(cursor + PREFETCH_AHEAD, (req.end + 1));
         while (task.wantQueue.length < desired && cursor < limit && cursor < task.size) {
             if (!task.parts.has(cursor) && !task.inflight.has(cursor) && !task.wantQueue.includes(cursor)) {
                 task.wantQueue.push(cursor);
@@ -725,7 +782,14 @@ function requestNextChunk(task) {
         }
     });
 
-    while (task.wantQueue.length < desired) {
+    const hasPreviewReq = (() => { try { return Array.from(task.swRequests.values()).some(r => r && r.preview); } catch(e) { return false; } })();
+if (hasPreviewReq) {
+    // 预览：只按 SW 当前 range 拉取，不做顺序补齐
+    dispatchRequests(task);
+    return;
+}
+
+while (task.wantQueue.length < desired) {
         const off = Math.max(task.nextOffset, task.lastWanted + CHUNK_SIZE);
         if (off >= task.size) break;
         if (task.parts.has(off)) {

@@ -183,7 +183,7 @@ async function handleVirtualHead(event, client, { fileId, fileName, rangeHeader 
   const requestId = Math.random().toString(36).slice(2) + Date.now();
 
   // 先发 OPEN
-  try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
+  try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader, preview: !!isPreview }); } catch (e) {}
 
   return new Promise(resolve => {
     const metaHandler = (e) => {
@@ -252,7 +252,11 @@ async function handleVirtualStream(event) {
   try { fileName = decodeURIComponent(segs.slice(1).join('/') || 'file'); }
   catch (e) { fileName = segs.slice(1).join('/') || 'file'; }
 
-  const rangeHeader = event.request.headers.get('Range');
+  const reqUrl = new URL(event.request.url);
+  const isPreview = !!(reqUrl.searchParams && reqUrl.searchParams.has('p1_preview'));
+  let rangeHeader = event.request.headers.get('Range');
+  // 预览：首次点击只取前 1MB，用来拿到首帧封面（后续会主动取消，不继续下载）
+  if (isPreview && !rangeHeader) rangeHeader = 'bytes=0-1048575';
 
   // PATCH: 处理 HEAD（媒体元素常见探测行为）
   if (event.request.method === 'HEAD') {
@@ -266,7 +270,7 @@ async function handleVirtualStream(event) {
     type: 'bytes',
     start(controller) {
       streamControllers.set(requestId, controller);
-      try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
+      try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader, preview: !!isPreview }); } catch (e) {}
     },
     cancel() {
       streamControllers.delete(requestId);
