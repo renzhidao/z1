@@ -159,22 +159,55 @@ const VoiceMessage: React.FC<{
 };
 
 // --- 辅助组件：视频消息 ---
-// 目标：未点击不触发下载；点击后先 armFile 再设置 src 并播放；封面遮罩避免黑屏
+// 目标：未点击不触发下载；点击后先 armFile 再设置 src 并播放；封面用“首帧截图”
 const VideoMessage: React.FC<{
   fileId?: string;
   fileName: string;
   getSrc: () => string;
 }> = ({ fileId, fileName, getSrc }) => {
   const [src, setSrc] = React.useState<string>('');
-  const [cover, setCover] = React.useState(true);
+  const [coverUrl, setCoverUrl] = React.useState<string>(''); // 首帧截图（dataURL）
+  const [showCover, setShowCover] = React.useState<boolean>(true);
   const vRef = React.useRef<HTMLVideoElement | null>(null);
+  const startedRef = React.useRef(false);
 
-  const start = () => {
+  const arm = () => {
     try {
       if (fileId && (window as any).smartCore && (window as any).smartCore.armFile) {
         (window as any).smartCore.armFile(fileId);
       }
     } catch (_) {}
+  };
+
+  const captureFirstFrame = () => {
+    try {
+      const v = vRef.current;
+      if (!v) return;
+      const w = v.videoWidth || 0;
+      const h = v.videoHeight || 0;
+      if (w <= 0 || h <= 0) return;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(w, 480);
+      canvas.height = Math.max(1, Math.round((canvas.width / w) * h));
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+      const url = canvas.toDataURL('image/jpeg', 0.85);
+      if (url && url.startsWith('data:image/')) setCoverUrl(url);
+    } catch (_) {}
+  };
+
+  const start = () => {
+    if (startedRef.current) {
+      try { vRef.current && (vRef.current as any).play && (vRef.current as any).play(); } catch (_) {}
+      return;
+    }
+    startedRef.current = true;
+
+    arm();
 
     if (!src) {
       const u = getSrc();
@@ -189,14 +222,15 @@ const VideoMessage: React.FC<{
     }, 0);
   };
 
+  // 未点击：不设 src，不会触发 /virtual/file/ 请求
   if (!src) {
-    // 未点击：只显示封面，不设置 src -> 不会触发 /virtual/file/ 请求
     return (
       <div
-        className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200"
+        className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 cursor-pointer"
         style={{
-          background:
-            'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
+          background: coverUrl
+            ? `url(${coverUrl}) center/cover no-repeat`
+            : 'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
         }}
         onClick={start}
       >
@@ -237,16 +271,22 @@ const VideoMessage: React.FC<{
         playsInline
         preload="metadata"
         className="w-full max-h-[300px]"
-        onLoadedData={() => setCover(false)}
-        onError={(e) => console.error('Video load error', e)}
+        onLoadedData={() => {
+          captureFirstFrame();
+          setShowCover(true);
+        }}
+        onPlaying={() => setShowCover(false)}
         onClick={(e) => e.stopPropagation()}
+        onError={(e) => console.error('视频加载失败', e)}
       />
-      {cover && (
+
+      {showCover && (
         <div
           className="absolute inset-0 flex flex-col items-center justify-center gap-2 cursor-pointer"
           style={{
-            background:
-              'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
+            background: coverUrl
+              ? `url(${coverUrl}) center/cover no-repeat`
+              : 'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
             transition: 'opacity .18s ease',
           }}
           onClick={(e) => {
@@ -263,12 +303,14 @@ const VideoMessage: React.FC<{
           <div className="text-white/70 text-[10px]">缓冲中…</div>
         </div>
       )}
+
       <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
         视频
       </div>
     </div>
   );
 };
+
 // --- 辅助组件：长按菜单项 ---
 const ContextMenuItem: React.FC<{
   icon: React.ReactNode;
@@ -880,7 +922,27 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
                       />
                     </div>
                   ) : isVideo ? (
-                    <VideoMessage fileId={msg.meta?.fileId} fileName={fileName || 'Video'} getSrc={() => getMediaSrc(msg)} />
+                    isMe ? (
+                      <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
+                        <video
+                          src={getMediaSrc(msg)}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="w-full max-h-[300px]"
+                          onError={(e) => console.error('视频加载失败', e)}
+                        />
+                        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+                          视频
+                        </div>
+                      </div>
+                    ) : (
+                      <VideoMessage
+                        fileId={msg.meta?.fileId}
+                        fileName={fileName || 'Video'}
+                        getSrc={() => getMediaSrc(msg)}
+                      />
+                    )
                   ) : isFile ? (
                     <div
                       onClick={() => handleSmartFileDownload(msg)}
