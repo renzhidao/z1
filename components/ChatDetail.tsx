@@ -159,20 +159,116 @@ const VoiceMessage: React.FC<{
 };
 
 // --- 辅助组件：视频消息 ---
-const VideoMessage: React.FC<{ src: string; fileName: string }> = ({ src, fileName }) => (
-  <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
-    <video
-      src={src}
-      controls
-      className="w-full max-h-[300px]"
-      onError={(e) => console.error('Video load error', e)}
-    />
-    <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-      视频
-    </div>
-  </div>
-);
+// 目标：未点击不触发下载；点击后先 armFile 再设置 src 并播放；封面遮罩避免黑屏
+const VideoMessage: React.FC<{
+  fileId?: string;
+  fileName: string;
+  getSrc: () => string;
+}> = ({ fileId, fileName, getSrc }) => {
+  const [src, setSrc] = React.useState<string>('');
+  const [cover, setCover] = React.useState(true);
+  const vRef = React.useRef<HTMLVideoElement | null>(null);
 
+  const start = () => {
+    try {
+      if (fileId && (window as any).smartCore && (window as any).smartCore.armFile) {
+        (window as any).smartCore.armFile(fileId);
+      }
+    } catch (_) {}
+
+    if (!src) {
+      const u = getSrc();
+      setSrc(u || '');
+    }
+
+    // 尝试同一用户手势内播放
+    setTimeout(() => {
+      try {
+        vRef.current && (vRef.current as any).play && (vRef.current as any).play();
+      } catch (_) {}
+    }, 0);
+  };
+
+  if (!src) {
+    // 未点击：只显示封面，不设置 src -> 不会触发 /virtual/file/ 请求
+    return (
+      <div
+        className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200"
+        style={{
+          background:
+            'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
+        }}
+        onClick={start}
+      >
+        <div className="w-[240px] h-[150px] flex flex-col items-center justify-center gap-2">
+          <div
+            className="w-10 h-10 rounded-full border-2 border-white/80 flex items-center justify-center text-white"
+            style={{ background: 'rgba(255,255,255,0.12)' }}
+          >
+            ▶
+          </div>
+          <div
+            className="text-white/90 text-[12px] px-3 text-center"
+            style={{
+              maxWidth: '92%',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={fileName}
+          >
+            {fileName}
+          </div>
+          <div className="text-white/60 text-[10px]">点击播放</div>
+        </div>
+        <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+          视频
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative rounded-[6px] overflow-hidden max-w-[240px] border border-gray-200 bg-black">
+      <video
+        ref={vRef}
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        className="w-full max-h-[300px]"
+        onLoadedData={() => setCover(false)}
+        onError={(e) => console.error('Video load error', e)}
+        onClick={(e) => e.stopPropagation()}
+      />
+      {cover && (
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-2 cursor-pointer"
+          style={{
+            background:
+              'linear-gradient(135deg, rgba(17,24,39,.82), rgba(0,0,0,.35))',
+            transition: 'opacity .18s ease',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            start();
+          }}
+        >
+          <div
+            className="w-10 h-10 rounded-full border-2 border-white/80 flex items-center justify-center text-white"
+            style={{ background: 'rgba(255,255,255,0.12)' }}
+          >
+            ▶
+          </div>
+          <div className="text-white/70 text-[10px]">缓冲中…</div>
+        </div>
+      )}
+      <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+        视频
+      </div>
+    </div>
+  );
+};
 // --- 辅助组件：长按菜单项 ---
 const ContextMenuItem: React.FC<{
   icon: React.ReactNode;
@@ -678,7 +774,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
             msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage;
           const isVoice = msg.kind === 'voice';
 
-          const mediaSrc = (isImage || isVideo) ? getMediaSrc(msg) : '';
+          const mediaSrc = isImage ? getMediaSrc(msg) : '';
 
           return (
             <div key={msg.id || idx} className="mb-4 relative">
@@ -784,10 +880,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
                       />
                     </div>
                   ) : isVideo ? (
-                    <VideoMessage
-                      src={mediaSrc}
-                      fileName={fileName || 'Video'}
-                    />
+                    <VideoMessage fileId={msg.meta?.fileId} fileName={fileName || 'Video'} getSrc={() => getMediaSrc(msg)} />
                   ) : isFile ? (
                     <div
                       onClick={() => handleSmartFileDownload(msg)}
