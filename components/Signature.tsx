@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 
 interface SignatureProps {
-  onBack: () => void;
+  onBack: () => void; /* 返回回调 */
 }
 
 const Signature: React.FC<SignatureProps> = ({ onBack }) => {
@@ -31,8 +31,8 @@ const Signature: React.FC<SignatureProps> = ({ onBack }) => {
           <div className="relative">
               <input 
                 value={text}
-                onChange={(e) => setText(e.target.value)}
-                maxLength={maxLength}
+                onChange={(e) => setText(e.target.value)} /* 监听输入变化 */
+                maxLength={maxLength} /* 最大长度30 */
                 className="w-full px-0 py-2 text-[16px] text-[#191919] outline-none bg-transparent border-b border-[#07C160] caret-[#07C160] pb-2"
                 autoFocus
               />
