@@ -807,8 +807,9 @@ const normalizeVirtualUrl = (url: string) => {
   };
 
   // --- 录音 ---
-  const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
+const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
+    setVoiceRecording(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -843,23 +844,23 @@ const normalizeVirtualUrl = (url: string) => {
           });
         }
       };
-      mediaRecorder.start();
-      setVoiceRecording(true);
+mediaRecorder.start();
     } catch (err) {
       console.error(err);
+      setVoiceRecording(false);
       onShowToast('无法访问麦克风');
     }
   };
 
-  const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
+const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     if (mediaRecorderRef.current && voiceRecording) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream
         .getTracks()
         .forEach((track) => track.stop());
-      setVoiceRecording(false);
     }
+    setVoiceRecording(false);
   };
 
   // --- 文件选择 ---
