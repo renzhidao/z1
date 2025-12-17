@@ -160,11 +160,13 @@ const VoiceMessage: React.FC<{
 
 // --- 辅助组件：视频消息 ---
 
-// P1_PREVIEW_POSTER: 接收方自动预览 1MB 抓首帧当封面；点封面才真正播放
 
-const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean }> = ({ src, fileName, isMe }) => {
 
-  const [poster, setPoster] = useState<string | null>(null);
+// P1_PREVIEW_POSTER + FLEX_PREVIEW: 优先用发送方海报；无海报时自适应预览(1MB→2MB→4MB)
+
+const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; posterUrl?: string }> = ({ src, fileName, isMe, posterUrl }) => {
+
+  const [poster, setPoster] = useState<string | null>(posterUrl || null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
@@ -172,7 +174,15 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean }> =
 
 
 
-  const withPreviewParam = (u: string) => {
+  useEffect(() => {
+
+    if (!isPlaying && posterUrl && !poster) setPoster(posterUrl);
+
+  }, [posterUrl, isPlaying, poster]);
+
+
+
+  const withPreviewParam = (u: string, bytes: number) => {
 
     try {
 
@@ -180,11 +190,15 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean }> =
 
       url.searchParams.set('p1_preview', '1');
 
+      url.searchParams.set('p1_preview_bytes', String(bytes));
+
       return url.toString();
 
     } catch (_) {
 
-      return u.includes('?') ? `${u}&p1_preview=1` : `${u}?p1_preview=1`;
+      const qp = `p1_preview=1&p1_preview_bytes=${bytes}`;
+
+      return u.includes('?') ? `${u}&${qp}` : `${u}?${qp}`;
 
     }
 
@@ -192,77 +206,53 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean }> =
 
 
 
+  // 自适应预览：尝试 1MB -> 2MB -> 4MB，拿到首帧就停
+
   useEffect(() => {
 
-    // 发送方保持原样：不走预览/封面
+    if (isMe) return;                       // 发送方不预览
 
-    if (isMe) return;
+    if (isPlaying) return;                  // 已经在播就不预览
 
-    if (isPlaying) return;
+    if (poster) return;                     // 有海报不预览
 
-    if (!src || typeof src !== 'string' || !src.includes('virtual/file/')) return;
+    if (!src || typeof src !== 'string' || !src.includes('virtual/file/')) return; // 只对虚拟直链预览
 
 
+
+    const steps = [1*1024*1024, 2*1024*1024, 4*1024*1024];
 
     let cancelled = false;
 
+    let currentVideo: HTMLVideoElement | null = null;
 
-
-    // 清理上一次预览
-
-    try { cleanupRef.current && cleanupRef.current(); } catch (_) {}
-
-    cleanupRef.current = null;
-
-
-
-    const previewUrl = withPreviewParam(src);
-
-
-
-    const v = document.createElement('video');
-
-    v.muted = true;
-
-    (v as any).playsInline = true;
-
-    v.preload = 'auto';
-
-    v.src = previewUrl;
-
-    v.style.position = 'fixed';
-
-    v.style.left = '-9999px';
-
-    v.style.top = '-9999px';
-
-    v.style.width = '1px';
-
-    v.style.height = '1px';
-
-    v.style.opacity = '0';
-
-    document.body.appendChild(v);
-
-    try { v.load(); } catch (_) {}
+    let timer: any = null;
 
 
 
     const cleanup = () => {
 
-      try { v.pause(); } catch (_) {}
+      if (timer) { try { clearTimeout(timer); } catch (_) {} timer = null; }
+
+      try { currentVideo && currentVideo.pause(); } catch (_) {}
 
       try {
 
-        v.removeAttribute('src');
+        if (currentVideo) {
 
-        (v as any).srcObject = null;
+          currentVideo.removeAttribute('src');
 
-        v.load();
+          (currentVideo as any).srcObject = null;
+
+          currentVideo.load();
+
+          if (currentVideo.parentNode) currentVideo.parentNode.removeChild(currentVideo);
+
+        }
 
       } catch (_) {}
 
-      try { v.parentNode && v.parentNode.removeChild(v); } catch (_) {}
+      currentVideo = null;
 
     };
 
@@ -276,9 +266,11 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean }> =
 
       try {
 
-        const w = v.videoWidth || 240;
+        if (!currentVideo) return;
 
-        const h = v.videoHeight || 160;
+        const w = currentVideo.videoWidth || 240;
+
+        const h = currentVideo.videoHeight || 160;
 
         const canvas = document.createElement('canvas');
 
@@ -290,79 +282,117 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean }> =
 
         if (ctx) {
 
-          ctx.drawImage(v, 0, 0, w, h);
+          ctx.drawImage(currentVideo, 0, 0, w, h);
 
           const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
 
-          if (!cancelled) setPoster(dataUrl);
+          setPoster(dataUrl);
 
         }
 
       } catch (_) {}
 
-      // 首帧拿到就立刻停下载
+      cleanup(); // 首帧拿到就立刻停下载
+
+    };
+
+
+
+    const tryStep = (idx: number) => {
+
+      if (cancelled || idx >= steps.length) { cleanup(); return; }
 
       cleanup();
 
+
+
+      const previewUrl = withPreviewParam(src, steps[idx]);
+
+      const v = document.createElement('video');
+
+      v.muted = true;
+
+      (v as any).playsInline = true;
+
+      v.preload = 'auto';
+
+      v.src = previewUrl;
+
+      v.style.position = 'fixed';
+
+      v.style.left = '-9999px';
+
+      v.style.top = '-9999px';
+
+      v.style.width = '1px';
+
+      v.style.height = '1px';
+
+      v.style.opacity = '0';
+
+      document.body.appendChild(v);
+
+      currentVideo = v;
+
+
+
+      const onLoadedMeta = () => {
+
+        try {
+
+          const p = v.play();
+
+          if (p && typeof (p as any).then === 'function') {
+
+            (p as any).then(() => { try { v.pause(); } catch (_) {} }).catch(() => {});
+
+          }
+
+        } catch (_) {}
+
+        try { v.currentTime = 0; } catch (_) {}
+
+      };
+
+
+
+      const onLoadedData = () => grab();
+
+      const onSeeked = () => grab();
+
+      const onError = () => { tryStep(idx + 1); };
+
+
+
+      v.addEventListener('loadedmetadata', onLoadedMeta, { once: true } as any);
+
+      v.addEventListener('loadeddata', onLoadedData, { once: true } as any);
+
+      v.addEventListener('seeked', onSeeked, { once: true } as any);
+
+      v.addEventListener('error', onError, { once: true } as any);
+
+
+
+      // 超时升级下一档
+
+      timer = setTimeout(() => { tryStep(idx + 1); }, 1200);
+
     };
 
 
 
-    const onLoadedMeta = () => {
-
-      try {
-
-        const p = v.play();
-
-        if (p && typeof (p as any).then === 'function') {
-
-          (p as any).then(() => {
-
-            try { v.pause(); } catch (_) {}
-
-          }).catch(() => {});
-
-        }
-
-      } catch (_) {}
-
-      try { v.currentTime = 0; } catch (_) {}
-
-    };
+    tryStep(0);
 
 
 
-    const onLoadedData = () => grab();
+    return () => { cancelled = true; cleanup(); };
 
-    const onSeeked = () => grab();
-
-    const onError = () => cleanup();
+  }, [src, isMe, isPlaying, poster]);
 
 
 
-    v.addEventListener('loadedmetadata', onLoadedMeta, { once: true } as any);
-
-    v.addEventListener('loadeddata', onLoadedData, { once: true } as any);
-
-    v.addEventListener('seeked', onSeeked, { once: true } as any);
-
-    v.addEventListener('error', onError, { once: true } as any);
-
-
-
-    return () => {
-
-      cancelled = true;
-
-      cleanup();
-
-    };
-
-  }, [src, isMe, isPlaying]);
-
-
-
-  // 发送方：保持原样直接显示 video（不走预览封面）
+  // 发送方：保持原样直接播放（不走预览/封面）
 
   if (isMe) {
 
