@@ -112,14 +112,44 @@ export function init() {
 
   if (window.protocol) {
       const origSend = window.protocol.sendMsg;
-      window.protocol.sendMsg = function(txt, kind, meta) {
+      window.protocol.sendMsg = async function(txt, kind, meta) {
           if ((kind === CHAT.KIND_FILE || kind === CHAT.KIND_IMAGE) && meta && meta.fileObj) {
               const file = meta.fileObj;
+                // P1_POSTER_MAKER: 发送方为视频生成首帧海报（<=320宽，JPEG）
+                let __p1_poster = null;
+                try {
+                    if (file && typeof file.type === 'string' && /^video\//.test(file.type)) {
+                        __p1_poster = await (async () => {
+                            return await new Promise((resolve) => {
+                                try {
+                                    const url = URL.createObjectURL(file);
+                                    const v = document.createElement('video');
+                                    v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.src = url;
+                                    v.style.position = 'fixed'; v.style.left = '-9999px'; v.style.top = '-9999px'; v.style.width = '1px'; v.style.height = '1px'; v.style.opacity = '0';
+                                    document.body.appendChild(v);
+                                    let done = false; const finish = (data) => { if (done) return; done = true; try{v.pause()}catch(_){} try{URL.revokeObjectURL(url)}catch(_){} try{v.removeAttribute('src'); v.load();}catch(_){} try{if(v.parentNode) v.parentNode.removeChild(v);}catch(_){} resolve(data||null); };
+                                    const to = setTimeout(() => finish(null), 1200);
+                                    v.addEventListener('loadeddata', () => {
+                                        try {
+                                            const w = v.videoWidth || 320; const h = v.videoHeight || 180; const scale = Math.min(320 / (w||320), 1);
+                                            const cw = Math.max(1, Math.round(w * scale)); const ch = Math.max(1, Math.round(h * scale));
+                                            const c = document.createElement('canvas'); c.width = cw; c.height = ch; const ctx = c.getContext('2d');
+                                            if (ctx) { ctx.drawImage(v, 0, 0, cw, ch); const dataUrl = c.toDataURL('image/jpeg', 0.82); clearTimeout(to); finish(dataUrl); } else { clearTimeout(to); finish(null); }
+                                        } catch(_) { clearTimeout(to); finish(null); }
+                                    }, { once: true });
+                                    v.addEventListener('error', () => { finish(null); }, { once: true });
+                                    try { v.currentTime = 0; } catch(_){}
+                                } catch(_) { resolve(null); }
+                            });
+                        })();
+                    }
+                } catch(_) {}
+
               const fileId = 'f_' + Date.now() + Math.random().toString(36).substr(2,5);
               window.virtualFiles.set(fileId, file);
               log(`✅ 文件注册: ${file.name} (${fmtMB(file.size)}) type=${file.type}`);
 
-              const metaData = { fileId, fileName: file.name, fileSize: file.size, fileType: file.type };
+              const metaData = { fileId, fileName: file.name, fileSize: file.size, fileType: file.type, poster: __p1_poster || undefined };
               const msg = {
                   t: 'SMART_META', id: 'm_' + Date.now(), ts: Date.now(), senderId: window.state.myId,
                   n: window.state.myName, kind: 'SMART_FILE_UI', txt: `[文件] ${file.name}`, meta: metaData,

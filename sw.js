@@ -259,7 +259,10 @@ async function handleVirtualStream(event) {
   try {
     const u = new URL(event.request.url);
     if (u.searchParams && u.searchParams.get('p1_preview') === '1') {
-      rangeHeader = 'bytes=0-1048575';
+      const bytes = parseInt(u.searchParams.get('p1_preview_bytes') || '0', 10);
+      const cap = Math.min(Math.max(bytes || 1048576, 1), 4*1024*1024); // 1MB~4MB
+      const end = cap - 1;
+      rangeHeader = 'bytes=0-' + end;
     }
   } catch (e) {}
 
