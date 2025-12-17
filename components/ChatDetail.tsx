@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Chat, Message } from '../types';
 import {
-  ChevronLeft,
   MoreHorizontal,
   Mic,
   Smile,
@@ -24,6 +23,7 @@ import {
   Search as SearchIcon,
   X,
   FileText,
+  ChevronLeft,
 } from 'lucide-react';
 import CallOverlay from './CallOverlay';
 import LogConsole from './LogConsole';
@@ -158,9 +158,81 @@ const VoiceMessage: React.FC<{
   );
 };
 
+// --- 辅助组件：图片消息 ---
+const ImageMessage: React.FC<{
+  src: string;
+  alt: string;
+  isMe: boolean;
+  onPreview: (url: string) => void;
+}> = ({ src, alt, isMe, onPreview }) => {
+  const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const [currentSrc, setCurrentSrc] = useState(src);
+
+  useEffect(() => {
+    setCurrentSrc(src);
+    setHasError(false);
+    setIsLoading(true);
+    setRetryCount(0);
+  }, [src]);
+
+  const handleError = () => {
+    // 针对虚拟文件路径，最多自动重试 3 次
+    if (currentSrc.includes('./virtual/file/') && retryCount < 3) {
+      const nextRetry = retryCount + 1;
+      setRetryCount(nextRetry);
+      setTimeout(() => {
+        try {
+          const base = src.split('#')[0];
+          const withBust = base.includes('?') 
+            ? `${base}&r=${Date.now()}` 
+            : `${base}?r=${Date.now()}`;
+          setCurrentSrc(withBust);
+        } catch (_) {}
+      }, 800);
+    } else {
+      setHasError(true);
+      setIsLoading(false);
+    }
+  };
+
+  if (hasError) {
+    return (
+      <div className="flex flex-col items-center justify-center p-2 bg-gray-50 rounded-[6px] border border-gray-200 min-w-[100px] min-h-[100px]">
+         <div className="text-2xl mb-1">❌</div>
+         <span className="text-[12px] text-red-500">
+           {src.startsWith('blob:') ? '本地图片失效' : '加载失败'}
+         </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative inline-block min-h-[50px] min-w-[50px]">
+      <img
+        src={currentSrc}
+        className={`rounded-[6px] border border-gray-200 max-w-[200px] bg-white object-cover transition-opacity duration-300 ${
+          isLoading ? 'opacity-0' : 'opacity-100'
+        }`}
+        alt={alt}
+        onClick={(e) => {
+          e.stopPropagation();
+          onPreview(src); // 预览原始链接
+        }}
+        onLoad={() => setIsLoading(false)}
+        onError={handleError}
+      />
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-[6px]">
+          <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- 辅助组件：视频消息 ---
-
-
 
 // P1_PREVIEW_POSTER + FLEX_PREVIEW: 优先用发送方海报；无海报时自适应预览(1MB→2MB→4MB)
 
@@ -172,15 +244,11 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
   const cleanupRef = useRef<(() => void) | null>(null);
 
-
-
   useEffect(() => {
 
     if (!isPlaying && posterUrl && !poster) setPoster(posterUrl);
 
   }, [posterUrl, isPlaying, poster]);
-
-
 
   const withPreviewParam = (u: string, bytes: number) => {
 
@@ -204,8 +272,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
   };
 
-
-
   // 自适应预览：尝试 1MB -> 2MB -> 4MB，拿到首帧就停
 
   useEffect(() => {
@@ -218,8 +284,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
     if (!src || typeof src !== 'string' || !src.includes('virtual/file/')) return; // 只对虚拟直链预览
 
-
-
     const steps = [1*1024*1024, 2*1024*1024, 4*1024*1024];
 
     let cancelled = false;
@@ -227,8 +291,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
     let currentVideo: HTMLVideoElement | null = null;
 
     let timer: any = null;
-
-
 
     const cleanup = () => {
 
@@ -257,8 +319,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
     };
 
     cleanupRef.current = cleanup;
-
-
 
     const grab = () => {
 
@@ -296,15 +356,11 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
     };
 
-
-
     const tryStep = (idx: number) => {
 
       if (cancelled || idx >= steps.length) { cleanup(); return; }
 
       cleanup();
-
-
 
       const previewUrl = withPreviewParam(src, steps[idx]);
 
@@ -334,8 +390,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
       currentVideo = v;
 
-
-
       const onLoadedMeta = () => {
 
         try {
@@ -354,15 +408,11 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
       };
 
-
-
       const onLoadedData = () => grab();
 
       const onSeeked = () => grab();
 
       const onError = () => { tryStep(idx + 1); };
-
-
 
       v.addEventListener('loadedmetadata', onLoadedMeta, { once: true } as any);
 
@@ -372,25 +422,17 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
       v.addEventListener('error', onError, { once: true } as any);
 
-
-
       // 超时升级下一档
 
       timer = setTimeout(() => { tryStep(idx + 1); }, 1200);
 
     };
 
-
-
     tryStep(0);
-
-
 
     return () => { cancelled = true; cleanup(); };
 
   }, [src, isMe, isPlaying, poster]);
-
-
 
   // 发送方：保持原样直接播放（不走预览/封面）
 
@@ -419,8 +461,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
     );
 
   }
-
-
 
   // 接收方：点封面才真正播放
 
@@ -451,8 +491,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
     );
 
   }
-
-
 
   return (
 
@@ -494,8 +532,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
       )}
 
-
-
       {/* play icon overlay (no text) */}
 
       <div className="absolute inset-0 flex items-center justify-center">
@@ -534,7 +570,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
 // --- 辅助组件：长按菜单项 ---
 
-
 const ContextMenuItem: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -568,6 +603,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [voiceRecording, setVoiceRecording] = useState(false);
+  const [isRecordingCancel, setIsRecordingCancel] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [showCallMenu, setShowCallMenu] = useState(false);
   const [activeCall, setActiveCall] = useState<'voice' | 'video' | null>(null);
@@ -594,6 +630,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const voiceStartTimeRef = useRef<number>(0);
 const audioRef = useRef<HTMLAudioElement | null>(null);
   const pressToRecordRef = useRef<boolean>(false);
+  const cancelRecordRef = useRef<boolean>(false);
   const recordReqIdRef = useRef<number>(0);
 
   const scrollToBottom = () => {
@@ -659,7 +696,6 @@ const normalizeVirtualUrl = (url: string) => {
       }
     } catch (_) {}
   }, [chat.id]);
-
 
   // 来电：仅在当前聊天页接听（由 p1-call-webrtc 模块派发）
   useEffect(() => {
@@ -809,7 +845,7 @@ const normalizeVirtualUrl = (url: string) => {
   };
 
   // --- 录音 ---
-const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
+  const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
 
     // 防止 touch/mouse 双触发 + getUserMedia 异步竞态
@@ -818,6 +854,8 @@ const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
     const reqId = ++recordReqIdRef.current;
 
     setVoiceRecording(true);
+    setIsRecordingCancel(false);
+    cancelRecordRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -849,9 +887,8 @@ const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
         try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
         mediaRecorderRef.current = null;
         pressToRecordRef.current = false;
-        try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
-        mediaRecorderRef.current = null;
-        pressToRecordRef.current = false;
+        if (cancelRecordRef.current) return;
+
         const ms = Date.now() - voiceStartTimeRef.current;
         const duration = Math.max(1, Math.round(ms / 1000));
 
@@ -882,7 +919,7 @@ const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
           });
         }
       };
-  try { mediaRecorder.start(200); } catch (_) { mediaRecorder.start(); }
+      try { mediaRecorder.start(200); } catch (_) { mediaRecorder.start(); }
     } catch (err) {
       console.error(err);
       pressToRecordRef.current = false;
@@ -891,7 +928,28 @@ const startRecording = async (e: React.TouchEvent | React.MouseEvent) => {
     }
   };
 
-const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!voiceRecording) return;
+    const touch = e.touches[0];
+    const { clientY } = touch;
+    // 简单的阈值判定：如果上滑超过一定距离（例如屏幕高度的 20% 或固定像素），则视为取消
+    // 假设按钮在底部，向上滑 y 变小。
+    const winHeight = window.innerHeight;
+    // 如果手指位置在底部 120px 以上，视为取消意图（根据 UI 调整）
+    if (winHeight - clientY > 120) {
+      if (!isRecordingCancel) {
+        setIsRecordingCancel(true);
+        cancelRecordRef.current = true;
+      }
+    } else {
+      if (isRecordingCancel) {
+        setIsRecordingCancel(false);
+        cancelRecordRef.current = false;
+      }
+    }
+  };
+
+  const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     pressToRecordRef.current = false;
     setVoiceRecording(false);
@@ -1157,75 +1215,13 @@ const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
                   onTouchEnd={handleMessageTouchEnd}
                   onContextMenu={(e) => e.preventDefault()}
                 >
-                  {isImage ? (
-                    <div className="relative inline-block">
-                      <img
-                        src={mediaSrc}
-                        className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white min-h-[50px] min-w-[50px] object-cover"
-                        alt="Image"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPreviewUrl(mediaSrc);
-                        }}
-                        onLoad={(e) => {
-                          const img = e.currentTarget;
-                          img.style.visibility = 'visible';
-                          img.dataset.loaded = 'true';
-                        }}
-                        onError={(e) => {
-                          const img = e.currentTarget as HTMLImageElement;
-                          const src = mediaSrc || img.src || '';
-                          const isVirtual = src.includes('./virtual/file/');
-                          const isBlob = src.startsWith('blob:');
-                          const retry = parseInt(
-                            img.dataset.retry || '0',
-                            10,
-                          );
-
-                          // 避免长期显示裂图：先隐藏图片本身
-                          img.style.visibility = 'hidden';
-
-                          // 针对虚拟文件路径，最多自动重试 3 次（对齐旧前端）
-                          if (isVirtual && retry < 3) {
-                            img.dataset.retry = String(retry + 1);
-                            setTimeout(() => {
-                              try {
-                                const base = src.split('#')[0];
-                                const withBust =
-                                  base.indexOf('?') >= 0
-                                    ? `${base}&r=${Date.now()}`
-                                    : `${base}?r=${Date.now()}`;
-                                img.src = withBust;
-                              } catch (_) {}
-                            }, 800);
-                            return;
-                          }
-
-                          // 本地 blob 或多次重试失败：展示友好错误提示
-                          const parent = img.parentElement;
-                          if (
-                            parent &&
-                            !parent.querySelector(
-                              '.img-error-box-react',
-                            )
-                          ) {
-                            const div = document.createElement('div');
-                            div.className = 'img-error-box-react';
-                            div.textContent = isBlob
-                              ? '❌ 本地图片已失效，请重新发送'
-                              : '❌ 图片加载失败，请稍后重试';
-                            div.style.fontSize = '12px';
-                            div.style.color = '#ff3b30';
-                            div.style.padding = '6px 8px';
-                            div.style.background =
-                              'rgba(0,0,0,0.03)';
-                            div.style.borderRadius = '4px';
-                            div.style.marginTop = '4px';
-                            parent.appendChild(div);
-                          }
-                        }}
-                      />
-                    </div>
+{isImage ? (
+                    <ImageMessage
+                      src={mediaSrc}
+                      alt="Image"
+                      isMe={isMe}
+                      onPreview={setPreviewUrl}
+                    />
                   ) : isVideo ? (
                     <VideoMessage
                       src={mediaSrc}
@@ -1357,8 +1353,9 @@ const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
                 onMouseUp={stopRecording}
                 onTouchStart={startRecording}
                 onTouchEnd={stopRecording}
+                onTouchMove={handleTouchMove}
               >
-                {voiceRecording ? '松开 结束' : '按住 说话'}
+                {voiceRecording ? (isRecordingCancel ? '松开 取消' : '松开 结束') : '按住 说话'}
               </button>
             ) : (
               <textarea
@@ -1460,8 +1457,8 @@ const stopRecording = (e: React.TouchEvent | React.MouseEvent) => {
                50% { transform: scaleY(1); opacity: 1; }
              }
            `}</style>
-           <div className="relative bg-[#95EC69] w-[180px] h-[180px] rounded-[16px] flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200">
-              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#95EC69] rotate-45"></div>
+           <div className={`relative w-[180px] h-[180px] rounded-[16px] flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-200 transition-colors ${isRecordingCancel ? 'bg-red-500' : 'bg-[#95EC69]'}`}>
+              <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rotate-45 transition-colors ${isRecordingCancel ? 'bg-red-500' : 'bg-[#95EC69]'}`}></div>
               <div className="flex items-center gap-1.5 h-12 mb-4">
                   {[1,2,3,4,5,6,7].map(i => (
                     <div 
