@@ -488,7 +488,12 @@ function handleStreamOpen(data, source) {
          const isVideo = (/\.(mp4|mov|m4v)$/i.test(name) || /^video\//.test(type));
          const requireClick = !!((window.smartCore && window.smartCore.flags && window.smartCore.flags.videoRequireClick) || (window.__p1_scFlags && window.__p1_scFlags.videoRequireClick));
          const armed = !!(window.__p1_armedVideos && window.__p1_armedVideos.has(fileId));
-         if (isVideo && requireClick && !armed) {
+         const isMine = !!(
+             (window.virtualFiles && window.virtualFiles.has(fileId)) ||
+             (meta && window.state && meta.senderId && window.state.myId && meta.senderId === window.state.myId)
+         );
+
+         if (isVideo && requireClick && !isMine && !armed) {
              try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'Video not armed (click required)' }); } catch(e) {}
              return;
          }
