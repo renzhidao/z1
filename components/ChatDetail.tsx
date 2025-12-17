@@ -600,33 +600,52 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
 
   // 修复虚拟路径（/core/ 前缀）
   const getCoreBase = () => {
-    const loc = window.location;
-    let path = loc.pathname;
-    if (path.endsWith('.html') || path.endsWith('.htm')) {
-      path = path.substring(0, path.lastIndexOf('/') + 1);
+    try {
+      const loc = window.location;
+      const origin = loc.origin === 'null' ? '' : loc.origin;
+
+      let path = loc.pathname || '/';
+      // 取目录
+      if (path.endsWith('.html') || path.endsWith('.htm')) {
+        path = path.substring(0, path.lastIndexOf('/') + 1);
+      }
+      if (!path.endsWith('/')) {
+        path = path.substring(0, path.lastIndexOf('/') + 1);
+      }
+
+      // 如果当前页面已经在 /core/ 里，避免变成 /core/core/
+      const idx = path.indexOf('/core/');
+      if (idx >= 0) {
+        return origin + path.substring(0, idx + '/core/'.length);
+      }
+      return origin + path + 'core/';
+    } catch (_) {
+      return './core/';
     }
-    if (!path.endsWith('/')) {
-      path = path.substring(0, path.lastIndexOf('/') + 1);
-    }
-    const origin = loc.origin === 'null' ? '' : loc.origin;
-    return origin + path + 'core/';
   };
 
-  const normalizeVirtualUrl = (url: string) => {
+const normalizeVirtualUrl = (url: string) => {
     if (!url) return url;
     if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http'))
       return url;
+
+    // 已经是 core 虚拟直链就直接返回
+    if (url.includes('/core/virtual/file/')) return url;
+
+    const coreBase = getCoreBase(); // .../core/
     if (url.startsWith('./virtual/file/')) {
-      return getCoreBase() + url.slice(2);
+      return coreBase + url.slice(2); // 去掉 './'
     }
-    if (url.startsWith('./virtual/file/')) {
-      const base = getCoreBase().replace(/\/$/, '');
-      return base + url;
+    if (url.startsWith('/virtual/file/')) {
+      return coreBase + url.slice(1); // 去掉 '/'
+    }
+    if (url.startsWith('virtual/file/')) {
+      return coreBase + url;
     }
     return url;
   };
 
-  // 进入聊天时同步 Core 的 activeChat
+// 进入聊天时同步 Core 的 activeChat
   useEffect(() => {
     try {
       if (window.state) {
@@ -639,7 +658,28 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
     } catch (_) {}
   }, [chat.id]);
 
-  // --- 核心逻辑注入：数据加载与监听 ---
+
+  // 来电：仅在当前聊天页接听（由 p1-call-webrtc 模块派发）
+  useEffect(() => {
+    if ((window as any).__p1_call_ui_native) return;
+
+    const onIncoming = (e: CustomEvent) => {
+      try {
+        const d = e && (e as any).detail ? (e as any).detail : null;
+        if (!d) return;
+        if (d.from !== chat.id) return; // 仅处理当前联系人的来电
+
+        setActiveCall(d.mode === 'video' ? 'video' : 'voice');
+
+        // 自动接听信令
+        try { (window as any).p1Call && (window as any).p1Call.accept && (window as any).p1Call.accept(d); } catch (_) {}
+      } catch (_) {}
+    };
+
+    window.addEventListener('p1-call-incoming', onIncoming as any);
+    return () => window.removeEventListener('p1-call-incoming', onIncoming as any);
+  }, [chat.id]);
+// --- 核心逻辑注入：数据加载与监听 ---
   useEffect(() => {
     const processMessages = (msgs: any[]) => {
       // 过滤破损媒体消息（没有 txt 且没有 meta.fileId 的 image/video）
@@ -795,7 +835,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
         });
 
         if (window.protocol) {
-          window.protocol.sendMsg(null, 'voice' as any, {
+          window.protocol.sendMsg(String(duration), 'voice' as any, { duration,
             fileObj: file,
             name: file.name,
             size: file.size,
@@ -858,7 +898,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const startCall = (type: 'voice' | 'video') => {
     setShowCallMenu(false);
     setActiveCall(type);
-  };
+      try { (window as any).p1Call && (window as any).p1Call.start && (window as any).p1Call.start(chat.id, type); } catch (_) {}
+};
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -952,11 +993,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
       {showLog && <LogConsole onClose={() => setShowLog(false)} />}
 
       {/* Call Overlay */}
-      {activeCall && (
+      {activeCall && !(window as any).__p1_call_ui_native && (
         <CallOverlay
           user={chat.user}
           type={activeCall}
-          onHangup={() => setActiveCall(null)}
+          onHangup={() => { try { (window as any).p1Call && (window as any).p1Call.hangup && (window as any).p1Call.hangup(); } catch (_) {} setActiveCall(null); }}
         />
       )}
 
@@ -1149,6 +1190,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
                       src={mediaSrc}
                       fileName={fileName || 'Video'}
                       isMe={isMe}
+                       posterUrl={meta?.poster}
                     />
                   ) : isFile ? (
                     <div

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, Video, PhoneOff, Camera, Minimize2, VideoOff } from 'lucide-react';
 import { User } from '../types';
 
@@ -14,14 +14,26 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(type === 'video');
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSeconds(s => s + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+useEffect(() => {
+  // 每次切换模式（Video/Voice）导致 DOM 刷新后，重新绑定流
+  try {
+    (window as any).p1Call && (window as any).p1Call.attach && (window as any).p1Call.attach({
+      localVideo: localVideoRef.current,
+      remoteVideo: remoteVideoRef.current,
+      remoteAudio: remoteAudioRef.current,
+    });
+  } catch (_) {}
 
-  const formatTime = (totalSeconds: number) => {
+  const timer = setInterval(() => {
+    setSeconds(s => s + 1);
+  }, 1000);
+  return () => clearInterval(timer);
+}, [isVideoEnabled]);
+const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
@@ -36,7 +48,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
       
       {/* Top Controls */}
       <div className="relative z-10 w-full flex justify-between p-4 pt-safe-top">
-         <button onClick={onHangup} className="p-2 text-white/80 active:opacity-50">
+         <button onClick={() => { try { (window as any).p1Call && (window as any).p1Call.hangup && (window as any).p1Call.hangup(); } catch (_) {} onHangup(); }} className="p-2 text-white/80 active:opacity-50">
            <Minimize2 size={24} />
          </button>
       </div>
@@ -44,22 +56,23 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center pt-16 z-10 w-full relative">
          {!isVideoEnabled ? (
-             // Voice Call Layout
-             <>
+                             <>
+                             <audio ref={remoteAudioRef} autoPlay />
                 <img src={user.avatar} className="w-24 h-24 rounded-[12px] mb-4 shadow-lg" alt="Avatar"/>
                 <h2 className="text-white text-[24px] font-normal mb-2">{user.name}</h2>
                 <div className="text-white/70 text-[16px]">{formatTime(seconds)}</div>
              </>
+                             </>
          ) : (
             // Video Call Layout (Simulated)
              <div className="absolute inset-0 bg-black flex items-center justify-center">
-                 <img src="https://picsum.photos/seed/nature/800/1200" className="w-full h-full object-cover opacity-80" alt="Video Feed" />
+                 <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover opacity-80" />
                  <div className="absolute top-24 left-1/2 -translate-x-1/2 text-white text-[20px] drop-shadow-md">
                      {formatTime(seconds)}
                  </div>
                  {/* Self View */}
                  <div className="absolute top-4 right-4 w-28 h-40 bg-gray-800 rounded-[8px] overflow-hidden border border-white/20 shadow-lg">
-                     <img src="https://picsum.photos/seed/me/300/400" className="w-full h-full object-cover" alt="Me"/>
+                     <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
                  </div>
              </div>
          )}
@@ -75,11 +88,11 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
                    icon={isMuted ? <MicOff /> : <Mic />} 
                    label={isMuted ? "麦克风已关" : "麦克风已开"} 
                    active={isMuted}
-                   onClick={() => setIsMuted(!isMuted)} 
+                   onClick={() => { const next = !isMuted; setIsMuted(next); try { (window as any).p1Call && (window as any).p1Call.setMuted && (window as any).p1Call.setMuted(next); } catch (_) {} }} 
                 />
                 <div className="flex flex-col items-center">
                    <button 
-                     onClick={onHangup}
+                     onClick={() => { try { (window as any).p1Call && (window as any).p1Call.hangup && (window as any).p1Call.hangup(); } catch (_) {} onHangup(); }}
                      className="w-16 h-16 bg-[#FA5151] rounded-full flex items-center justify-center text-white mb-2 active:opacity-80 shadow-lg"
                    >
                      <PhoneOff size={32} fill="white" />
@@ -90,7 +103,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
                    icon={<Volume2 />} 
                    label={isSpeaker ? "扬声器已开" : "扬声器已关"} 
                    active={isSpeaker}
-                   onClick={() => setIsSpeaker(!isSpeaker)} 
+                   onClick={() => { const next = !isSpeaker; setIsSpeaker(next); try { (window as any).p1Call && (window as any).p1Call.setSpeaker && (window as any).p1Call.setSpeaker(next); } catch (_) {} }} 
                 />
             </div>
          ) : (
@@ -100,19 +113,19 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
                    icon={isMuted ? <MicOff /> : <Mic />} 
                    label={isMuted ? "麦克风已关" : "麦克风已开"} 
                    active={isMuted}
-                   onClick={() => setIsMuted(!isMuted)} 
+                   onClick={() => { const next = !isMuted; setIsMuted(next); try { (window as any).p1Call && (window as any).p1Call.setMuted && (window as any).p1Call.setMuted(next); } catch (_) {} }} 
                 />
                  <ControlBtn 
                    icon={<Volume2 />} 
                    label={isSpeaker ? "扬声器已开" : "扬声器已关"} 
                    active={isSpeaker}
-                   onClick={() => setIsSpeaker(!isSpeaker)} 
+                   onClick={() => { const next = !isSpeaker; setIsSpeaker(next); try { (window as any).p1Call && (window as any).p1Call.setSpeaker && (window as any).p1Call.setSpeaker(next); } catch (_) {} }} 
                 />
                  <ControlBtn 
                    icon={isVideoEnabled ? <Video /> : <VideoOff />} 
                    label="摄像头已开" 
                    active={isVideoEnabled}
-                   onClick={() => setIsVideoEnabled(!isVideoEnabled)} 
+                   onClick={() => { const next = !isVideoEnabled; setIsVideoEnabled(next); try { (window as any).p1Call && (window as any).p1Call.setVideoEnabled && (window as any).p1Call.setVideoEnabled(next); } catch (_) {} }} 
                 />
                  <ControlBtn 
                    icon={<Camera />} 

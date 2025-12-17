@@ -89,6 +89,10 @@
         'modules/db.js',
         'modules/protocol.js',
         'modules/smart-core.js',
+                'modules/p1-media-fix.js',
+                'modules/p1-call-webrtc.js',
+                'modules/p1-call-ui.js',
+                'modules/p1-voice.js',
         'modules/p2p.js',
         'modules/hub.js',
         'modules/mqtt.js'
@@ -114,7 +118,17 @@
           // 1. Register Service Worker
           if ('serviceWorker' in navigator) {
              try {
-               await navigator.serviceWorker.register('./sw.js', { scope: './' });
+               const __p1_sw_reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+                              console.log('✅ SW Registered:', __p1_sw_reg && __p1_sw_reg.scope);
+                              await navigator.serviceWorker.ready;
+                              if (!navigator.serviceWorker.controller) {
+                                  const k = '__sw_force_reload_once__';
+                                  if (!sessionStorage.getItem(k)) {
+                                      sessionStorage.setItem(k, '1');
+                                      location.reload();
+                                      return;
+                                  }
+                              }
                console.log('✅ SW Registered');
              } catch(err) {
                console.warn('⚠️ SW Registration Failed (Non-fatal):', err);
