@@ -6,7 +6,7 @@ function log(msg, type='ok') {
 }
 
 // 模块加载列表
-const FALLBACK_MODULES = ["monitor", "constants", "utils", "state", "db", "protocol", "smart-core", "p1-media-fix", "p1-call-webrtc", "p1-call-ui", "p1-voice", "p2p", "hub", "mqtt", "ui-render", "ui-events"];
+const FALLBACK_MODULES = ["monitor", "constants", "utils", "state", "db", "protocol", "smart-core", "patch-loader", "patches/smartmeta-db.js", "p1-media-fix", "p1-call-webrtc", "p1-call-ui", "p1-voice", "p2p", "hub", "mqtt", "ui-render", "ui-events"];
 
 // === 关键修复：确保 SW 先注册并接管当前页面（否则 ./virtual/file/ 不会触发 STREAM_OPEN）===
 async function ensureServiceWorkerControl() {
