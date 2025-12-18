@@ -213,8 +213,64 @@ export function init() {
                   const meta = { ...pkt.meta, senderId: pkt.senderId };
                   window.smartMetaCache.set(meta.fileId, meta);
                   if(!window.remoteFiles.has(meta.fileId)) window.remoteFiles.set(meta.fileId, new Set());
-                  window.remoteFiles.get(meta.fileId).add(pkt.senderId);
-                  if (window.ui) window.ui.appendMsg(pkt);
+window.remoteFiles.get(meta.fileId).add(pkt.senderId);
+
+
+
+                  // ✅ 持久化：SMART_META 也写入 DB，保证退出/重进不丢（只存元数据，不存文件本体）
+
+                  try { if (window.db && typeof window.db.saveMsg === 'function') window.db.saveMsg(pkt); } catch (_) {}
+
+
+
+                  // ✅ 与普通消息一致的未读/列表刷新逻辑（避免“只在当前会话才显示”）
+
+                  try {
+
+                      const isPublic = (pkt.target === CHAT.PUBLIC_ID);
+
+                      const isToMe = (pkt.target === window.state.myId);
+
+                      const isFromMe = (pkt.senderId === window.state.myId);
+
+                      const okScope = isPublic || isToMe || isFromMe;
+
+
+
+                      if (okScope) {
+
+                          const chatKey = isPublic ? CHAT.PUBLIC_ID : (isFromMe ? pkt.target : pkt.senderId);
+
+                          if (window.state.activeChat !== chatKey) {
+
+                              window.state.unread[chatKey] = (window.state.unread[chatKey] || 0) + 1;
+
+                              if (window.ui) window.ui.renderList();
+
+                          } else {
+
+                              if (window.ui) window.ui.appendMsg(pkt);
+
+                          }
+
+                      } else {
+
+                          if (window.ui) window.ui.appendMsg(pkt);
+
+                      }
+
+                  } catch (_) {
+
+                      if (window.ui) window.ui.appendMsg(pkt);
+
+                  }
+
+
+
+                  // ✅ 通知 React/桥接层刷新
+
+                  try { window.dispatchEvent(new CustomEvent('core-ui-update', { detail: { type: 'msg' } })); } catch (_) {}
+
               }
               // 回 ACK
               if (fromPeerId) {
