@@ -1166,18 +1166,27 @@ const normalizeVirtualUrl = (url: string) => {
           const fileType = meta.fileType || msg.fileType || '';
           const fileName = meta.fileName || msg.fileName || '';
 
+          // 修复：优先判断 voice 类型，防止 webm 格式录音被误判为视频
+          const isVoice = msg.kind === 'voice';
+
           const isVideo =
-            (typeof fileType === 'string' && fileType.startsWith('video/')) ||
-            /\.(mp4|mov|m4v|webm)$/i.test(fileName || '');
+            !isVoice &&
+            ((typeof fileType === 'string' && fileType.startsWith('video/')) ||
+            /\.(mp4|mov|m4v|webm)$/i.test(fileName || '') ||
+            msg.kind === 'video');
+
           const isImage =
+            !isVoice &&
             !isVideo &&
             ((typeof fileType === 'string' &&
               fileType.startsWith('image/')) ||
               /\.(png|jpe?g|gif|webp|bmp)$/i.test(fileName || '') ||
               msg.kind === 'image');
+
           const isFile =
-            msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage;
-          const isVoice = msg.kind === 'voice';
+            msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage && !isVoice;
+
+
 
           const mediaSrc = (isImage || isVideo) ? getMediaSrc(msg) : '';
 
