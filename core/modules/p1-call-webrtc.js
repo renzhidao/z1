@@ -289,7 +289,27 @@ export function init() {
   }
 
   function setupPcCommon(peerId) {
-    st.pc = new RTCPeerConnection({ iceServers: iceServers() });
+st.pc = new RTCPeerConnection({ iceServers: iceServers() });
+
+// 预建音视频 m-line，保证随时可升级/降级（避免黑屏）
+try {
+  if (st.pc.addTransceiver) {
+    st.pc.addTransceiver('audio', { direction: 'sendrecv' });
+    st.pc.addTransceiver('video', { direction: 'sendrecv' });
+  }
+} catch (_) {}
+
+// 自动协商：轨变化/参数变化时，稳定状态下发起 offer
+st.pc.onnegotiationneeded = () => {
+  (async () => {
+    try {
+      if (!st.active || !st.pc) return;
+      if (st._makingOffer) return;
+      if (st.pc.signalingState !== 'stable') return;
+      await makeOffer(peerId);
+    } catch (_) {}
+  })();
+};
 
     // track -> remoteStream
     st.pc.ontrack = (ev) => {
