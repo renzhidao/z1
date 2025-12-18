@@ -209,7 +209,6 @@ export function init() {
               const seen = window.state.seenMsgs.has(pkt.id);
               if (!seen) {
                   window.state.seenMsgs.add(pkt.id);
-                  try { if (!pkt.target) pkt.target = CHAT.PUBLIC_ID; } catch (_) {}
                   log(`📥 Meta: ${pkt.meta.fileName} (${fmtMB(pkt.meta.fileSize)}) from=${pkt.senderId}`);
                   const meta = { ...pkt.meta, senderId: pkt.senderId };
                   window.smartMetaCache.set(meta.fileId, meta);
@@ -564,50 +563,13 @@ function checkTimeouts() {
     });
 }
 
-async function handleStreamOpen(data, source) {
-
+function handleStreamOpen(data, source) {
     const { requestId, fileId, range } = data;
 
-
-
-    // 1) 内存命中
-
     if (window.virtualFiles.has(fileId)) {
-
         serveLocalBlob(fileId, requestId, range, source);
-
         return;
-
     }
-
-
-
-    // 2) IndexedDB 命中（关闭浏览器后仍可播放）
-
-    try {
-
-        if (window.db && typeof window.db.getFile === 'function') {
-
-            const blob = await window.db.getFile(fileId);
-
-            if (blob) {
-
-                window.virtualFiles.set(fileId, blob);
-
-                log(`✅ DB恢复文件: ${fileId} (${fmtMB(blob.size || 0)})`);
-
-                serveLocalBlob(fileId, requestId, range, source);
-
-                return;
-
-            }
-
-        }
-
-    } catch (_) {}
-
-
-
 
     let task = window.activeTasks.get(fileId);
     if (!task) {
@@ -1008,35 +970,7 @@ function handleBinaryData(buffer, fromId) {
 
                 // 合成 Blob
                 const blob = new Blob(chunks, { type: task.fileType || 'application/octet-stream' });
-
                 window.virtualFiles.set(task.fileId, blob);
-
-
-
-                // ✅ 持久化文件本体：关闭浏览器后仍可播放（不自动清理）
-
-                try {
-
-                    const meta2 = (window.smartMetaCache && window.smartMetaCache.get(task.fileId)) || {};
-
-                    if (window.db && typeof window.db.saveFile === 'function') {
-
-                        window.db.saveFile(task.fileId, blob, {
-
-                            fileName: meta2.fileName || '',
-
-                            fileType: task.fileType || meta2.fileType || 'application/octet-stream',
-
-                            fileSize: task.size || meta2.fileSize || 0,
-
-                            ts: Date.now()
-
-                        });
-
-                    }
-
-                } catch (_) {}
-
 
                 if (window.activePlayer && window.activePlayer.fileId === task.fileId) {
                     try { window.activePlayer.flush(); } catch(e){}

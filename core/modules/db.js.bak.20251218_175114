@@ -19,37 +19,9 @@ const req = indexedDB.open('P1_DB', 3);
     },
 
     async saveMsg(msg) {
-
       if (!this._db) return;
-
       const tx = this._db.transaction(['msgs'], 'readwrite');
-
       tx.objectStore('msgs').put(msg);
-
-    },
-
-
-    // === 文件本体持久化（不自动清理，交给用户）===
-    async saveFile(fileId, blob, meta) {
-      if (!this._db) return;
-      if (!fileId || !blob) return;
-      try {
-        const tx = this._db.transaction(['files'], 'readwrite');
-        tx.objectStore('files').put({ fileId: String(fileId), blob: blob, meta: meta || null, ts: Date.now() });
-      } catch (_) {}
-    },
-
-    async getFile(fileId) {
-      if (!this._db) return null;
-      if (!fileId) return null;
-      return new Promise(resolve => {
-        try {
-          const tx = this._db.transaction(['files'], 'readonly');
-          const req = tx.objectStore('files').get(String(fileId));
-          req.onsuccess = () => resolve((req.result && req.result.blob) ? req.result.blob : null);
-          req.onerror = () => resolve(null);
-        } catch (_) { resolve(null); }
-      });
     },
 
     async getRecent(limit, target='all', beforeTs) {

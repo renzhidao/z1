@@ -564,50 +564,13 @@ function checkTimeouts() {
     });
 }
 
-async function handleStreamOpen(data, source) {
-
+function handleStreamOpen(data, source) {
     const { requestId, fileId, range } = data;
 
-
-
-    // 1) 内存命中
-
     if (window.virtualFiles.has(fileId)) {
-
         serveLocalBlob(fileId, requestId, range, source);
-
         return;
-
     }
-
-
-
-    // 2) IndexedDB 命中（关闭浏览器后仍可播放）
-
-    try {
-
-        if (window.db && typeof window.db.getFile === 'function') {
-
-            const blob = await window.db.getFile(fileId);
-
-            if (blob) {
-
-                window.virtualFiles.set(fileId, blob);
-
-                log(`✅ DB恢复文件: ${fileId} (${fmtMB(blob.size || 0)})`);
-
-                serveLocalBlob(fileId, requestId, range, source);
-
-                return;
-
-            }
-
-        }
-
-    } catch (_) {}
-
-
-
 
     let task = window.activeTasks.get(fileId);
     if (!task) {
