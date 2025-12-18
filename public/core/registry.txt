@@ -5,6 +5,8 @@ state
 db
 protocol
 smart-core
+patch-loader
+patches/smartmeta-db.js
 p1-media-fix
 p1-voice
 p1-call-webrtc
