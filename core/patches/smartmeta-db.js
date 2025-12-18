@@ -32,7 +32,19 @@ export function init() {
       };
 
       w.protocol.__p1_smartmeta_db_patched = true;
-      try { w.corePatch && w.corePatch.log && w.corePatch.log('SMART_META -> db.saveMsg enabled'); } catch (_) {}
+      try {
+        const msg = 'SMART_META -> db.saveMsg enabled';
+        try { console.log('[Patch]', msg); } catch (_) {}
+        try { if (w.util && typeof w.util.log === 'function') w.util.log('[Patch] ' + msg); } catch (_) {}
+        try {
+          const sys = w.logSystem;
+          if (sys && typeof sys.push === 'function') {
+            const ts = new Date().toLocaleTimeString();
+            sys.push(`[${ts}] [Patch] ${msg}`);
+          }
+        } catch (_) {}
+        try { w.corePatch && w.corePatch.log && w.corePatch.log(msg); } catch (_) {}
+      } catch (_) {}
       return true;
     } catch (_) {
       return false;
