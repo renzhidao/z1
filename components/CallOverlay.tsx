@@ -47,6 +47,8 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
           remoteVideo: remoteVideoRef.current,
           remoteAudio: remoteAudioRef.current,
         });
+        // 远端音频自动播放强制尝试
+        if (remoteAudioRef.current) remoteAudioRef.current.play().catch(() => {});
     }, 100);
     return () => clearTimeout(timer);
   }, [isVideoEnabled]); // 依赖 isVideoEnabled 重新绑定
