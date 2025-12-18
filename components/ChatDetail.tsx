@@ -170,7 +170,51 @@ const ImageMessage: React.FC<{
   const [retryCount, setRetryCount] = useState(0);
   const [currentSrc, setCurrentSrc] = useState(src);
 
+  
+  // 从本地缓存/DB 恢复消息：退出重进不丢（语音/视频/文件同样保留）
   useEffect(() => {
+    try {
+      const cached = __p1LoadCache();
+      if (cached && cached.length) {
+        // @ts-ignore
+        setMessages(cached);
+      }
+    } catch (_) {}
+
+    __p1FetchRecent().then((list) => {
+      try {
+        if (list && list.length) {
+          // @ts-ignore
+          setMessages(list);
+          __p1SaveCache(list);
+        }
+      } catch (_) {}
+    });
+
+    const handler = () => {
+      __p1FetchRecent().then((list) => {
+        try {
+          if (list && list.length) {
+            // @ts-ignore
+            setMessages(list);
+            __p1SaveCache(list);
+          }
+        } catch (_) {}
+      });
+    };
+
+    window.addEventListener('core-ui-update', handler as any);
+    return () => window.removeEventListener('core-ui-update', handler as any);
+  }, [__p1ConvId]);
+
+  // 兜底：本地状态变化也落盘（避免 UI 端插入消息但 DB 还没写入的瞬间丢失）
+  useEffect(() => {
+    try {
+      // @ts-ignore
+      if (Array.isArray(messages)) __p1SaveCache(messages as any[]);
+    } catch (_) {}
+  }, [__p1ConvId, messages]);
+useEffect(() => {
     setCurrentSrc(src);
     setHasError(false);
     setIsLoading(true);
@@ -240,6 +284,58 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
   const [poster, setPoster] = useState<string | null>(posterUrl || null);
 
+
+  /* __P1_CHAT_PERSIST_V1__ */
+  const __p1GetConvId = () => {
+    try {
+      // 优先 chat.id / activeChat / user.id
+      // @ts-ignore
+      const w = window as any;
+      // @ts-ignore
+      const anyChat: any = (typeof (chat as any) !== 'undefined') ? (chat as any) : null;
+      if (anyChat && anyChat.id) return String(anyChat.id);
+      if (w && w.state && w.state.activeChat) return String(w.state.activeChat);
+      // @ts-ignore
+      const anyUser: any = (typeof (user as any) !== 'undefined') ? (user as any) : null;
+      if (anyUser && anyUser.id) return String(anyUser.id);
+    } catch (_) {}
+    return 'all';
+  };
+  const __p1ConvId = __p1GetConvId();
+  const __p1CacheKey = 'p1_chat_cache_v1:' + __p1ConvId;
+
+  const __p1LoadCache = () => {
+    try {
+      const raw = localStorage.getItem(__p1CacheKey);
+      if (!raw) return null;
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return null;
+      return arr;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const __p1SaveCache = (arr: any[]) => {
+    try {
+      if (!Array.isArray(arr)) return;
+      const cut = arr.slice(Math.max(0, arr.length - 300));
+      localStorage.setItem(__p1CacheKey, JSON.stringify(cut));
+    } catch (_) {}
+  };
+
+  const __p1FetchRecent = async () => {
+    try {
+      // @ts-ignore
+      const w = window as any;
+      const db = w && w.db;
+      if (db && typeof db.getRecent === 'function') {
+        const list = await db.getRecent(300, __p1ConvId);
+        if (Array.isArray(list)) return list;
+      }
+    } catch (_) {}
+    return null;
+  };
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   const cleanupRef = useRef<(() => void) | null>(null);

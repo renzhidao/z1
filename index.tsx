@@ -94,3 +94,72 @@ if ((window as any).__CORE_READY__) {
     mount();
   });
 }
+
+/* __P1_LOGSYSTEM_BOOT__ */
+(function(){
+  try{
+    const w = window;
+    if (w.__p1_logsystem_booted) return;
+    w.__p1_logsystem_booted = true;
+
+    const sys = w.logSystem = w.logSystem || {};
+    sys.history = Array.isArray(sys.history) ? sys.history : [];
+    sys.fullHistory = Array.isArray(sys.fullHistory) ? sys.fullHistory : [];
+    sys.max = (typeof sys.max === 'number') ? sys.max : 600;
+    sys.maxFull = (typeof sys.maxFull === 'number') ? sys.maxFull : 6000;
+
+    let inPush = false;
+    const pushLine = (line) => {
+      try{
+        if (inPush) return;
+        inPush = true;
+        const s = String(line || '');
+        if (!s) return;
+        sys.fullHistory.push(s);
+        sys.history.push(s);
+        if (sys.history.length > sys.max) sys.history = sys.history.slice(sys.history.length - sys.max);
+        if (sys.fullHistory.length > sys.maxFull) sys.fullHistory = sys.fullHistory.slice(sys.fullHistory.length - sys.maxFull);
+      } finally {
+        inPush = false;
+      }
+    };
+
+    sys.push = sys.push || pushLine;
+    sys.clear = sys.clear || (() => { sys.history = []; sys.fullHistory = []; });
+
+    // patch util.log (很多 core 日志走这里)
+    w.util = w.util || {};
+    const oldUtilLog = w.util.log;
+    w.util.log = (msg) => {
+      try{
+        const ts = new Date().toLocaleTimeString();
+        sys.push(`[${ts}] [util] ${String(msg||'')}`);
+      }catch(_){}
+      try{ if (typeof oldUtilLog === 'function') oldUtilLog(msg); }catch(_){}
+    };
+
+    // capture console to log panel (避免漏掉模块日志)
+    const orig = {
+      log: console.log.bind(console),
+      info: console.info ? console.info.bind(console) : console.log.bind(console),
+      warn: console.warn ? console.warn.bind(console) : console.log.bind(console),
+      error: console.error ? console.error.bind(console) : console.log.bind(console),
+    };
+
+    ['log','info','warn','error'].forEach((k) => {
+      const fn = orig[k];
+      console[k] = (...args) => {
+        try{
+          const ts = new Date().toLocaleTimeString();
+          const text = args.map(a => {
+            try { return (typeof a === 'string') ? a : JSON.stringify(a); }
+            catch(_) { return String(a); }
+          }).join(' ');
+          sys.push(`[${ts}] [${k}] ${text}`);
+        }catch(_){}
+        try{ fn(...args); }catch(_){}
+      };
+    });
+  }catch(_){}
+})();
+

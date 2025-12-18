@@ -8,6 +8,7 @@ interface LogConsoleProps {
 const LogConsole: React.FC<LogConsoleProps> = ({ onClose }) => {
   const [logs, setLogs] = useState<string[]>([]);
   const contentRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
     const fetchLogs = () => {
@@ -23,11 +24,28 @@ const LogConsole: React.FC<LogConsoleProps> = ({ onClose }) => {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto scroll
+  // Scroll follow: 只有当你在底部时才自动跟随；你滚上去就不抢滚动
   useEffect(() => {
-    if (contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
+    const el = contentRef.current;
+    if (!el) return;
+
+    const onScroll = () => {
+      try {
+        const nearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 24;
+        stickToBottomRef.current = !!nearBottom;
+      } catch (_) {}
+    };
+
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    if (!stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [logs]);
 
   const fallbackCopyByTextarea = (text: string) => {
