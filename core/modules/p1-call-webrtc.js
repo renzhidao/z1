@@ -149,18 +149,14 @@ export function init() {
 
     try {
       st.localStream = await getLocalStream(st.mode);
-      st.remoteStream = new MediaStream();
       st.pc = new RTCPeerConnection({ iceServers: iceServers() });
-
       st.localStream.getTracks().forEach(t => st.pc.addTrack(t, st.localStream));
 
       st.pc.ontrack = (ev) => {
-        try {
-          if (ev.streams && ev.streams[0]) {
-            ev.streams[0].getTracks().forEach(tr => st.remoteStream.addTrack(tr));
-            tryAttach();
-          }
-        } catch (_) {}
+        if (ev.streams && ev.streams[0]) {
+          st.remoteStream = ev.streams[0];
+          tryAttach();
+        }
       };
 
       st.pc.onicecandidate = async (ev) => {
@@ -201,18 +197,14 @@ export function init() {
 
     try {
       st.localStream = await getLocalStream(st.mode);
-      st.remoteStream = new MediaStream();
       st.pc = new RTCPeerConnection({ iceServers: iceServers() });
-
       st.localStream.getTracks().forEach(t => st.pc.addTrack(t, st.localStream));
 
       st.pc.ontrack = (ev) => {
-        try {
-          if (ev.streams && ev.streams[0]) {
-            ev.streams[0].getTracks().forEach(tr => st.remoteStream.addTrack(tr));
-            tryAttach();
-          }
-        } catch (_) {}
+        if (ev.streams && ev.streams[0]) {
+          st.remoteStream = ev.streams[0];
+          tryAttach();
+        }
       };
 
       st.pc.onicecandidate = async (ev) => {
@@ -225,6 +217,8 @@ export function init() {
       await st.pc.setRemoteDescription(new RTCSessionDescription(sdp));
       const answer = await st.pc.createAnswer();
       await st.pc.setLocalDescription(answer);
+
+      setTimeout(() => tryAttach(), 500);
 
       await send(peerId, callMsg(peerId, { action: 'answer', callId: st.callId, mode: st.mode, sdp: answer }));
       window.dispatchEvent(new CustomEvent('p1-call-state', { detail: { state: 'answered', mode: st.mode, peerId } }));
