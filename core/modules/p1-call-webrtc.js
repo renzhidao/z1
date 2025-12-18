@@ -48,8 +48,7 @@ export function init() {
     // a hint to allow autoplay attempts after a user gesture
     _unlocked: false,
     _iceBuf: new Map(), // callId -> {ts:number, list: RTCIceCandidateInit[]}
-    _discTimer: null,
-    _hints: new Set()
+    _discTimer: null
   };
 
   function _p1IceCleanup() {
@@ -157,30 +156,11 @@ export function init() {
     } catch (_) {}
   }
 
-function tryPlay(el) {
+  function tryPlay(el) {
     try {
       if (!el || !el.play) return;
       const p = el.play();
       if (p && p.catch) p.catch(() => {});
-    } catch (_) {}
-  }
-
-  function _p1HintOnce(key, msg) {
-    try {
-      st._hints = st._hints || new Set();
-      if (st._hints.has(key)) return;
-      st._hints.add(key);
-      if (window.monitor && window.monitor.info) window.monitor.info('Call', msg);
-      else console.log('[Call]', msg);
-    } catch (_) {}
-  }
-
-  function _p1CheckVol(el) {
-    try {
-      if (!el) return;
-      const muted = (el.muted === true);
-      const low = (typeof el.volume === 'number' && el.volume <= 0.05);
-      if (muted || low) _p1HintOnce('low-vol', '检测到播放设备静音或音量过低，请增大音量或取消静音');
     } catch (_) {}
   }
 
@@ -195,15 +175,13 @@ function tryPlay(el) {
         }
       } catch (_) {}
       try {
-if (a.remoteVideo && st.remoteStream) { a.remoteVideo.srcObject = st.remoteStream; a.remoteVideo.muted = false; tryPlay(a.remoteVideo); }
+if (a.remoteVideo && st.remoteStream) { a.remoteVideo.srcObject = st.remoteStream; a.remoteVideo.muted = true; tryPlay(a.remoteVideo); }
       } catch (_) {}
       try {
 if (a.remoteAudio && st.remoteStream) {
   a.remoteAudio.srcObject = st.remoteStream;
   a.remoteAudio.autoplay = true;
-  // 若存在 remoteVideo，则统一用 video 播放，audio 静音；否则 audio 负责播放
-  a.remoteAudio.muted = !!a.remoteVideo;
-  try { if (!a.remoteVideo) a.remoteAudio.volume = 1; } catch(_) {}
+  try { a.remoteAudio.volume = 1; } catch(_) {}
   tryPlay(a.remoteAudio);
 }
       } catch (_) {}
