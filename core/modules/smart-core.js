@@ -32,11 +32,47 @@ function statBump(k) {
 // === Tunables ===
 // 保持较低的块大小以稳定发送端内存
 const CHUNK_SIZE = 128 * 1024;
-const PARALLEL = 12;
+// 方案A：只提稳提速，不改块大小
+const PARALLEL = 16;
 const PREFETCH_AHEAD = 3 * 1024 * 1024;
-const MAX_BUFFERED = 256 * 1024;
+
+// 发送背压阈值：原 256KB 太保守，会显著拖慢吞吐；提高到 2MB 更稳更快
+const MAX_BUFFERED = 2 * 1024 * 1024;
+// 低水位（事件触发）阈值：当 bufferedAmount 下降到这个值附近时再继续 flush
+const LOW_WATER = 1 * 1024 * 1024;
+
 const SEND_QUEUE = [];
 const USE_SEQUENCE_MODE = false;
+
+// === 背压事件驱动（替代纯轮询）===
+function _p1GetDC(conn){
+    try { return (conn && (conn._dc || conn.dataChannel)) || null; } catch(_){ return null; }
+}
+function _p1ArmBufferedLow(conn) {
+    try {
+        const dc = _p1GetDC(conn);
+        if (!dc) return;
+        if (dc._p1_low_armed) return;
+
+        if ('bufferedAmountLowThreshold' in dc) {
+            try { dc.bufferedAmountLowThreshold = Math.max(256 * 1024, LOW_WATER); } catch (_) {}
+        }
+
+        const onLow = () => {
+            try { dc.removeEventListener('bufferedamountlow', onLow); } catch (_) {}
+            dc._p1_low_armed = false;
+            try { flushSendQueue(); } catch (_) {}
+        };
+
+        dc._p1_low_armed = true;
+        try {
+            dc.addEventListener('bufferedamountlow', onLow, { once: true });
+        } catch (_) {
+            dc._p1_low_armed = false;
+            setTimeout(() => { try { flushSendQueue(); } catch(__) {} }, 40);
+        }
+    } catch (_) {}
+}
 
 // Debug helpers
 function fmtMB(n){ return (n/1024/1024).toFixed(1)+'MB'; }
@@ -348,7 +384,7 @@ export function init() {
   };
 
   setInterval(checkTimeouts, 1000);
-  setInterval(flushSendQueue, 100);
+setInterval(flushSendQueue, 180);
 }
 
 /***********************
@@ -998,46 +1034,63 @@ function handleGetChunk(pkt, fromId) {
 }
 
 function sendSafe(conn, packet) {
-    const dc = conn.dataChannel || conn._dc || (conn.peerConnection && conn.peerConnection.createDataChannel ? null : null);
+    const dc = _p1GetDC(conn);
+
     // 保护：如果队列过长，丢弃旧包（避免堆爆）
-    if (SEND_QUEUE.length > 200) {
+    if (SEND_QUEUE.length > 400) {
         log('⚠️ 发送队列过载，丢弃包');
         SEND_QUEUE.shift();
     }
 
-    if (dc && dc.bufferedAmount > MAX_BUFFERED) {
-        SEND_QUEUE.push({ conn, packet });
-        return;
-    }
+    // 背压：超过高水位先入队，并用低水位事件驱动继续 flush
+    try {
+        if (dc && typeof dc.bufferedAmount === 'number' && dc.bufferedAmount > MAX_BUFFERED) {
+            SEND_QUEUE.push({ conn, packet });
+            _p1ArmBufferedLow(conn);
+            return;
+        }
+    } catch (_) {}
+
     try {
         conn.send(packet);
         statBump('send');
-    } catch(e) {
+    } catch (e) {
         SEND_QUEUE.push({ conn, packet });
+        _p1ArmBufferedLow(conn);
     }
 }
 
 function flushSendQueue() {
     if (SEND_QUEUE.length === 0) return;
-    let processCount = 8;
+
+    // 单次多发一点更接近“跑满带宽”，但仍受 MAX_BUFFERED 背压保护
+    let processCount = 24;
     const fails = [];
+
     while (SEND_QUEUE.length > 0 && processCount > 0) {
         const item = SEND_QUEUE.shift();
-        if (!item.conn || item.conn.readyState === 'closed' || !item.conn.open) continue;
+        if (!item || !item.conn || !item.conn.open) continue;
 
-        const dc = item.conn.dataChannel || item.conn._dc;
-        if (dc && dc.bufferedAmount > MAX_BUFFERED) {
-            fails.push(item);
-        } else {
-            try {
-                item.conn.send(item.packet);
-                statBump('send');
-                processCount--;
-            } catch(e) {
+        const dc = _p1GetDC(item.conn);
+
+        try {
+            if (dc && typeof dc.bufferedAmount === 'number' && dc.bufferedAmount > MAX_BUFFERED) {
                 fails.push(item);
+                _p1ArmBufferedLow(item.conn);
+                continue;
             }
+        } catch (_) {}
+
+        try {
+            item.conn.send(item.packet);
+            statBump('send');
+            processCount--;
+        } catch (e) {
+            fails.push(item);
+            _p1ArmBufferedLow(item.conn);
         }
     }
+
     if (fails.length > 0) SEND_QUEUE.unshift(...fails);
 }
 
