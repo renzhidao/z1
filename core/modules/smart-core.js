@@ -223,47 +223,12 @@ window.remoteFiles.get(meta.fileId).add(pkt.senderId);
 
 
 
-                  // ✅ 与普通消息一致的未读/列表刷新逻辑（避免“只在当前会话才显示”）
-
-                  try {
-
-                      const isPublic = (pkt.target === CHAT.PUBLIC_ID);
-
-                      const isToMe = (pkt.target === window.state.myId);
-
-                      const isFromMe = (pkt.senderId === window.state.myId);
-
-                      const okScope = isPublic || isToMe || isFromMe;
 
 
+                  // ✅ UI 更新：保持原行为，避免 target/会话逻辑导致异常
 
-                      if (okScope) {
+                  try { if (window.ui) window.ui.appendMsg(pkt); } catch (_) {}
 
-                          const chatKey = isPublic ? CHAT.PUBLIC_ID : (isFromMe ? pkt.target : pkt.senderId);
-
-                          if (window.state.activeChat !== chatKey) {
-
-                              window.state.unread[chatKey] = (window.state.unread[chatKey] || 0) + 1;
-
-                              if (window.ui) window.ui.renderList();
-
-                          } else {
-
-                              if (window.ui) window.ui.appendMsg(pkt);
-
-                          }
-
-                      } else {
-
-                          if (window.ui) window.ui.appendMsg(pkt);
-
-                      }
-
-                  } catch (_) {
-
-                      if (window.ui) window.ui.appendMsg(pkt);
-
-                  }
 
 
 
