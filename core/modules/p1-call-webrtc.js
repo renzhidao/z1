@@ -175,17 +175,15 @@ export function init() {
         }
       } catch (_) {}
       try {
-        if (a.remoteVideo && st.remoteStream) {
-          a.remoteVideo.srcObject = st.remoteStream;
-          tryPlay(a.remoteVideo);
-        }
+if (a.remoteVideo && st.remoteStream) { a.remoteVideo.srcObject = st.remoteStream; a.remoteVideo.muted = true; tryPlay(a.remoteVideo); }
       } catch (_) {}
       try {
-        if (a.remoteAudio && st.remoteStream) {
-          a.remoteAudio.srcObject = st.remoteStream;
-          a.remoteAudio.autoplay = true;
-          tryPlay(a.remoteAudio);
-        }
+if (a.remoteAudio && st.remoteStream) {
+  a.remoteAudio.srcObject = st.remoteStream;
+  a.remoteAudio.autoplay = true;
+  try { a.remoteAudio.volume = 1; } catch(_) {}
+  tryPlay(a.remoteAudio);
+}
       } catch (_) {}
     });
   }
@@ -235,7 +233,13 @@ export function init() {
   async function getLocalStream(mode) {
     const wantVideo = (mode === 'video') && st.videoEnabled;
     const video = wantVideo ? { facingMode: st.facingMode } : false;
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video });
+    const audio = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1
+    };
+    return await navigator.mediaDevices.getUserMedia({ audio, video });
   }
 
   async function getNewVideoTrack() {
