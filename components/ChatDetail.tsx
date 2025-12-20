@@ -1196,17 +1196,45 @@ const hasLocalMedia = !!(raw.meta && (((raw.meta as any).__pending) || (raw.meta
         (newMsg as any).clientMsgID ||
         null;
 
+const newHasLocalMedia = !!(
+        (newMsg as any).meta &&
+        (((newMsg as any).meta.__pending) ||
+          ((newMsg as any).meta.fileObj) ||
+          ((newMsg as any).meta.previewDataUrl))
+      );
+      const newHasFileId = !!((newMsg as any).meta && (newMsg as any).meta.fileId);
+
       const isDupOrPending = (m: any) => {
         if (!m) return false;
 
+        const mIsPendingImage = !!(m.meta?.__pending && m.kind === 'image');
+        const mHasLocalMedia = !!(m.meta && (m.meta.previewDataUrl || m.meta.fileObj));
+
         // 1) 优先用 clientMsgId 精准替换 pending
         if (clientId) {
-          if (m.id != null && String(m.id) === String(clientId)) return true;
           const mcid = m.meta?.clientMsgId || m.meta?.clientMsgID || m.clientMsgId || m.clientMsgID;
-          if (mcid && String(mcid) === String(clientId)) return true;
+          const hit =
+            (m.id != null && String(m.id) === String(clientId)) ||
+            (mcid && String(mcid) === String(clientId));
+
+          if (hit) {
+            // 如果我们本地已经有“更好”的待上传图片预览，不要被 core 的“更差回声”(无 fileId/无本地媒体)顶掉
+            if (
+              (newMsg as any).kind === 'image' &&
+              (newMsg as any).senderId === currentUserId &&
+              mIsPendingImage &&
+              mHasLocalMedia &&
+              !newHasFileId &&
+              !newHasLocalMedia
+            ) {
+              return false;
+            }
+            return true;
+          }
         }
 
         // 2) 兜底：同一张待上传图片（文件名+大小+时间窗）替换
+        //    只允许“更好”的新消息替换：要么拿到 fileId，要么带本地媒体(preview/fileObj)
         if ((newMsg as any).kind === 'image' && (newMsg as any).senderId === currentUserId) {
           if (m.meta?.__pending && m.kind === 'image') {
             const fn1 = m.meta?.fileName || '';
@@ -1216,14 +1244,45 @@ const hasLocalMedia = !!(raw.meta && (((raw.meta as any).__pending) || (raw.meta
             const t1 = m.ts || 0;
             const t2 = (newMsg as any).ts || 0;
             const dt = Math.abs(Number(t1) - Number(t2));
-            if (fn1 && fn2 && fn1 === fn2 && s1 && s2 && Number(s1) == Number(s2) && dt < 20000) return true;
+
+            const matches = !!(fn1 && fn2 && fn1 === fn2 && s1 && s2 && Number(s1) == Number(s2) && dt < 20000);
+            if (matches) {
+              if (newHasFileId || newHasLocalMedia) return true;
+              // 新消息更差：保留现有本地预览，避免出现“两个都转圈不显示”
+              return false;
+            }
           }
         }
 
         return false;
       };
 
-      const filtered = arr.filter((m) => !isDupOrPending(m));
+const filtered = arr.filter((m) => !isDupOrPending(m));
+
+      
+      // skip worse echo image: if we already have a local pending preview/fileObj, don't add another placeholder that can't render
+      if ((newMsg as any).kind === 'image' && (newMsg as any).senderId === currentUserId) {
+        const hasLocal = !!((newMsg as any).meta && (((newMsg as any).meta.__pending) || ((newMsg as any).meta.fileObj) || ((newMsg as any).meta.previewDataUrl)));
+        const hasFileId = !!((newMsg as any).meta && (newMsg as any).meta.fileId);
+        if (!hasFileId && !hasLocal) {
+          const fn2 = (newMsg as any).meta?.fileName || '';
+          const s2 = (newMsg as any).meta?.fileSize || (newMsg as any).meta?.size || null;
+          const t2 = Number((newMsg as any).ts || 0);
+          if (fn2 && s2) {
+            const existsLocalPending = filtered.find((m: any) => {
+              if (!m) return false;
+              if (!(m.kind === 'image' && m.meta?.__pending)) return false;
+              if (!(m.meta?.previewDataUrl || m.meta?.fileObj)) return false;
+              const fn1 = m.meta?.fileName || '';
+              const s1 = m.meta?.fileSize || m.meta?.size || null;
+              const t1 = Number(m.ts || 0);
+              const dt = Math.abs(t1 - t2);
+              return fn1 && fn1 === fn2 && s1 && Number(s1) == Number(s2) && dt < 20000;
+            });
+            if (existsLocalPending) return filtered;
+          }
+        }
+      }
 
       // 去重：同 id 不重复插入
       if (filtered.find((m) => m && m.id === newMsg.id)) return filtered;
@@ -1484,7 +1543,7 @@ const out = [...filtered, newMsg].sort((a: any, b: any) => (a.ts || 0) - (b.ts |
     // 图片：先本地上屏（并可被 localStorage 缓存），避免退出/返回后 blob 失效
     if (kind === 'image') {
       const previewDataUrl = await makePreview(file);
-      const localMsg: any = {
+const localMsg: any = {
         id: localId,
         kind: 'image',
         senderId: currentUserId,
@@ -1495,7 +1554,8 @@ txt: '',
           fileName: file.name,
           fileType: file.type,
           fileSize: file.size,
-          previewDataUrl: previewDataUrl || undefined,
+                    fileObj: file,
+previewDataUrl: previewDataUrl || undefined,
           __pending: true,
           clientMsgId: localId,
         },
