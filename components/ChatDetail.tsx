@@ -75,7 +75,6 @@ const formatMessageTime = (date: Date) => {
 };
 
 // --- 辅助组件：语音图标 ---
-
 const VoiceIcon: React.FC<{ isMe: boolean; isPlaying: boolean }> = ({ isMe, isPlaying }) => (
   <div className={`flex items-center justify-center w-5 h-5 ${isMe ? 'rotate-180' : ''}`}>
     <svg
@@ -91,14 +90,17 @@ const VoiceIcon: React.FC<{ isMe: boolean; isPlaying: boolean }> = ({ isMe, isPl
       <path
         d="M5 11a1 1 0 0 1 0 2"
         className={`${isPlaying ? 'animate-voice-1' : ''} text-[#191919]`}
+        style={{ opacity: isPlaying ? 0 : 1 }}
       />
       <path
         d="M8.5 8.5a5 5 0 0 1 0 7"
         className={`${isPlaying ? 'animate-voice-2' : ''} text-[#191919]`}
+        style={{ opacity: isPlaying ? 0 : 1 }}
       />
       <path
         d="M12 6a8 8 0 0 1 0 12"
         className={`${isPlaying ? 'animate-voice-3' : ''} text-[#191919]`}
+        style={{ opacity: isPlaying ? 0 : 1 }}
       />
     </svg>
   </div>
@@ -238,62 +240,62 @@ const ImageMessage: React.FC<{
 
 }> = ({ src, alt, isMe, onPreview }) => {
 
-
   const [hasError, setHasError] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
+
   const [retryCount, setRetryCount] = useState(0);
+
   const [currentSrc, setCurrentSrc] = useState(src);
-  const retryTimerRef = useRef<any>(null);
+
+
 
   useEffect(() => {
-    // reset state on src change
-    try {
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
-    } catch (_) {}
 
     setCurrentSrc(src);
+
     setHasError(false);
+
     setIsLoading(true);
+
     setRetryCount(0);
 
-    return () => {
-      try {
-        if (retryTimerRef.current) {
-          clearTimeout(retryTimerRef.current);
-          retryTimerRef.current = null;
-        }
-      } catch (_) {}
-    };
   }, [src]);
 
+
+
   const handleError = () => {
+
     // 针对虚拟文件路径，最多自动重试 3 次
+
     if (currentSrc.includes('virtual/file/') && retryCount < 3) {
+
       const nextRetry = retryCount + 1;
+
       setRetryCount(nextRetry);
 
-      try {
-        if (retryTimerRef.current) {
-          clearTimeout(retryTimerRef.current);
-          retryTimerRef.current = null;
-        }
-      } catch (_) {}
+      setTimeout(() => {
 
-      retryTimerRef.current = setTimeout(() => {
         try {
+
           const base = String(src || '').split('#')[0];
+
           const withBust = base.includes('?') ? `${base}&r=${Date.now()}` : `${base}?r=${Date.now()}`;
+
           setCurrentSrc(withBust);
+
         } catch (_) {}
+
       }, 800);
 
       return;
+
     }
+
     setHasError(true);
+
     setIsLoading(false);
+
   };
 
 
@@ -761,8 +763,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const __p1SaveChatCache = (arr: any[]) => {
     try {
       if (!Array.isArray(arr)) return;
-const cut = arr; // 不做主动条数上限（仍受 localStorage 配额限制）
-// pendingPreviewKept removed: no proactive previewDataUrl limit
+      const cut = arr.slice(Math.max(0, arr.length - 300));
+      let pendingPreviewKept = 0;
 
       const safe = cut.map((m: any) => {
         const mm: any = m && typeof m === 'object' ? { ...m } : m;
@@ -779,7 +781,15 @@ const cut = arr; // 不做主动条数上限（仍受 localStorage 配额限制�
         const meta: any = mm.meta && typeof mm.meta === 'object' ? { ...mm.meta } : undefined;
         if (meta && meta.fileObj) delete meta.fileObj; // File 无法 JSON 化
 
-// 不做主动限制：尽量完整缓存（仍受 localStorage 配额限制）
+        // 仅对待上传图片保留少量 previewDataUrl，避免 localStorage 爆掉
+        if (meta && meta.__pending && typeof meta.previewDataUrl === 'string') {
+          pendingPreviewKept += 1;
+          const tooMany = pendingPreviewKept > 3;
+          const tooBig = meta.previewDataUrl.length > 350000;
+          if (tooMany || tooBig) delete meta.previewDataUrl;
+        } else if (meta && meta.previewDataUrl) {
+          delete meta.previewDataUrl;
+        }
 
         mm.meta = meta;
         return mm;
@@ -807,28 +817,10 @@ const hasLocalMedia = !!(m?.meta?.__pending || m?.meta?.previewDataUrl || m?.met
     } catch (_) {}
   }, [__p1ChatCacheKey]);
 
-
   useEffect(() => {
-    let t: any = null;
     try {
-      // debounce localStorage writes (no limits; just avoid blocking UI on rapid message updates)
-      t = setTimeout(() => {
-        try {
-          __p1SaveChatCache(messages as any);
-        } catch (_) {}
-      }, 300);
+      __p1SaveChatCache(messages as any);
     } catch (_) {}
-
-    return () => {
-      try {
-        if (t) {
-          clearTimeout(t);
-          t = null;
-          // best-effort flush on cleanup
-          try { __p1SaveChatCache(messages as any); } catch (_) {}
-        }
-      } catch (_) {}
-    };
   }, [__p1ChatCacheKey, messages]);
 
   const [inputValue, setInputValue] = useState('');
@@ -857,76 +849,10 @@ const hasLocalMedia = !!(m?.meta?.__pending || m?.meta?.previewDataUrl || m?.met
   const scrollRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const voiceStartTimeRef = useRef<number>(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-
-  // ObjectURL cache: avoid creating new blob: URLs on every render; revoke when messages removed/unmount.
-  const objectUrlMapRef = useRef<Map<string, string>>(new Map());
-
-  const getMsgKey = (m: any) => {
-    try {
-      const id = m?.id;
-      const cid = m?.meta?.clientMsgId || m?.meta?.clientMsgID || m?.clientMsgId || m?.clientMsgID;
-
-      if (id != null) return `id:${String(id)}`;
-      if (cid) return `cid:${String(cid)}`;
-
-      const fo: any = m?.meta?.fileObj;
-      if (fo && typeof fo === 'object') {
-        const n = fo.name != null ? String(fo.name) : '';
-        const s = fo.size != null ? String(fo.size) : '';
-        const t = fo.type != null ? String(fo.type) : '';
-        const lm = fo.lastModified != null ? String(fo.lastModified) : '';
-        if (n || s || t || lm) return `fo:${n}|${s}|${t}|${lm}`;
-      }
-
-      const sid = m?.senderId != null ? String(m.senderId) : '';
-      const kind = m?.kind != null ? String(m.kind) : '';
-      const ts = m?.ts != null ? String(m.ts) : '';
-      const fn = m?.meta?.fileName != null ? String(m.meta.fileName) : '';
-      const fsRaw = m?.meta?.fileSize ?? m?.meta?.size;
-      const fs = fsRaw != null ? String(fsRaw) : '';
-
-      if (sid || kind || ts || fn || fs) return `f:${sid}|${kind}|${fn}|${fs}|${ts}`;
-      return '';
-    } catch (_) {
-      return '';
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      try {
-        for (const url of objectUrlMapRef.current.values()) {
-          try { URL.revokeObjectURL(url); } catch (_) {}
-        }
-      } catch (_) {}
-      try { objectUrlMapRef.current.clear(); } catch (_) {}
-    };
-  }, []);
-
-  useEffect(() => {
-    // revoke urls for messages that are no longer in list
-    try {
-      const alive = new Set<string>();
-      for (const m of (messages as any[])) {
-        const k = getMsgKey(m);
-        if (k) alive.add(k);
-      }
-      const map = objectUrlMapRef.current;
-      for (const [k, url] of Array.from(map.entries())) {
-        if (!alive.has(k)) {
-          try { URL.revokeObjectURL(url); } catch (_) {}
-          map.delete(k);
-        }
-      }
-    } catch (_) {}
-  }, [messages]);
-
+const audioRef = useRef<HTMLAudioElement | null>(null);
   const pressToRecordRef = useRef<boolean>(false);
   const cancelRecordRef = useRef<boolean>(false);
   const recordReqIdRef = useRef<number>(0);
@@ -1106,10 +1032,10 @@ window.db.getRecent(50, chat.id).then((msgs: any[]) => {
             byKey.set(keyOf(m), m);
           }
 
-const out = Array.from(byKey.values()).sort(
+          const out = Array.from(byKey.values()).sort(
             (a: any, b: any) => (a.ts || 0) - (b.ts || 0),
           );
-          return out;
+          return out.slice(Math.max(0, out.length - 300));
         });
 
         setTimeout(scrollToBottom, 100);
@@ -1196,45 +1122,17 @@ const hasLocalMedia = !!(raw.meta && (((raw.meta as any).__pending) || (raw.meta
         (newMsg as any).clientMsgID ||
         null;
 
-const newHasLocalMedia = !!(
-        (newMsg as any).meta &&
-        (((newMsg as any).meta.__pending) ||
-          ((newMsg as any).meta.fileObj) ||
-          ((newMsg as any).meta.previewDataUrl))
-      );
-      const newHasFileId = !!((newMsg as any).meta && (newMsg as any).meta.fileId);
-
       const isDupOrPending = (m: any) => {
         if (!m) return false;
 
-        const mIsPendingImage = !!(m.meta?.__pending && m.kind === 'image');
-        const mHasLocalMedia = !!(m.meta && (m.meta.previewDataUrl || m.meta.fileObj));
-
         // 1) 优先用 clientMsgId 精准替换 pending
         if (clientId) {
+          if (m.id != null && String(m.id) === String(clientId)) return true;
           const mcid = m.meta?.clientMsgId || m.meta?.clientMsgID || m.clientMsgId || m.clientMsgID;
-          const hit =
-            (m.id != null && String(m.id) === String(clientId)) ||
-            (mcid && String(mcid) === String(clientId));
-
-          if (hit) {
-            // 如果我们本地已经有“更好”的待上传图片预览，不要被 core 的“更差回声”(无 fileId/无本地媒体)顶掉
-            if (
-              (newMsg as any).kind === 'image' &&
-              (newMsg as any).senderId === currentUserId &&
-              mIsPendingImage &&
-              mHasLocalMedia &&
-              !newHasFileId &&
-              !newHasLocalMedia
-            ) {
-              return false;
-            }
-            return true;
-          }
+          if (mcid && String(mcid) === String(clientId)) return true;
         }
 
         // 2) 兜底：同一张待上传图片（文件名+大小+时间窗）替换
-        //    只允许“更好”的新消息替换：要么拿到 fileId，要么带本地媒体(preview/fileObj)
         if ((newMsg as any).kind === 'image' && (newMsg as any).senderId === currentUserId) {
           if (m.meta?.__pending && m.kind === 'image') {
             const fn1 = m.meta?.fileName || '';
@@ -1244,51 +1142,20 @@ const newHasLocalMedia = !!(
             const t1 = m.ts || 0;
             const t2 = (newMsg as any).ts || 0;
             const dt = Math.abs(Number(t1) - Number(t2));
-
-            const matches = !!(fn1 && fn2 && fn1 === fn2 && s1 && s2 && Number(s1) == Number(s2) && dt < 20000);
-            if (matches) {
-              if (newHasFileId || newHasLocalMedia) return true;
-              // 新消息更差：保留现有本地预览，避免出现“两个都转圈不显示”
-              return false;
-            }
+            if (fn1 && fn2 && fn1 === fn2 && s1 && s2 && Number(s1) == Number(s2) && dt < 20000) return true;
           }
         }
 
         return false;
       };
 
-const filtered = arr.filter((m) => !isDupOrPending(m));
-
-      
-      // skip worse echo image: if we already have a local pending preview/fileObj, don't add another placeholder that can't render
-      if ((newMsg as any).kind === 'image' && (newMsg as any).senderId === currentUserId) {
-        const hasLocal = !!((newMsg as any).meta && (((newMsg as any).meta.__pending) || ((newMsg as any).meta.fileObj) || ((newMsg as any).meta.previewDataUrl)));
-        const hasFileId = !!((newMsg as any).meta && (newMsg as any).meta.fileId);
-        if (!hasFileId && !hasLocal) {
-          const fn2 = (newMsg as any).meta?.fileName || '';
-          const s2 = (newMsg as any).meta?.fileSize || (newMsg as any).meta?.size || null;
-          const t2 = Number((newMsg as any).ts || 0);
-          if (fn2 && s2) {
-            const existsLocalPending = filtered.find((m: any) => {
-              if (!m) return false;
-              if (!(m.kind === 'image' && m.meta?.__pending)) return false;
-              if (!(m.meta?.previewDataUrl || m.meta?.fileObj)) return false;
-              const fn1 = m.meta?.fileName || '';
-              const s1 = m.meta?.fileSize || m.meta?.size || null;
-              const t1 = Number(m.ts || 0);
-              const dt = Math.abs(t1 - t2);
-              return fn1 && fn1 === fn2 && s1 && Number(s1) == Number(s2) && dt < 20000;
-            });
-            if (existsLocalPending) return filtered;
-          }
-        }
-      }
+      const filtered = arr.filter((m) => !isDupOrPending(m));
 
       // 去重：同 id 不重复插入
       if (filtered.find((m) => m && m.id === newMsg.id)) return filtered;
 
-const out = [...filtered, newMsg].sort((a: any, b: any) => (a.ts || 0) - (b.ts || 0));
-      return out;
+      const out = [...filtered, newMsg].sort((a: any, b: any) => (a.ts || 0) - (b.ts || 0));
+      return out.slice(Math.max(0, out.length - 300));
     });
 
     setTimeout(scrollToBottom, 100);
@@ -1483,17 +1350,11 @@ const out = [...filtered, newMsg].sort((a: any, b: any) => (a.ts || 0) - (b.ts |
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    // 允许再次选择同一个文件也能触发 onChange
-    try {
-      e.target.value = '';
-    } catch (_) {}
     if (!file) return;
-
 
     // 只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META（对齐旧前端）
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
-    else if (file.type.startsWith('video/')) kind = 'video';
 
     const localId = `local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
@@ -1543,7 +1404,7 @@ const out = [...filtered, newMsg].sort((a: any, b: any) => (a.ts || 0) - (b.ts |
     // 图片：先本地上屏（并可被 localStorage 缓存），避免退出/返回后 blob 失效
     if (kind === 'image') {
       const previewDataUrl = await makePreview(file);
-const localMsg: any = {
+      const localMsg: any = {
         id: localId,
         kind: 'image',
         senderId: currentUserId,
@@ -1554,8 +1415,7 @@ txt: '',
           fileName: file.name,
           fileType: file.type,
           fileSize: file.size,
-                    fileObj: file,
-previewDataUrl: previewDataUrl || undefined,
+          previewDataUrl: previewDataUrl || undefined,
           __pending: true,
           clientMsgId: localId,
         },
@@ -1637,35 +1497,17 @@ previewDataUrl: previewDataUrl || undefined,
   ];
 
   // 媒体 URL：对齐旧版 smartCore.play + 修正 /core/ 作用域
-
-
   const getMediaSrc = (msg: any) => {
-    if (msg?.meta?.previewDataUrl) return msg.meta.previewDataUrl;
-
-    if (msg?.meta?.fileObj) {
-      const key = getMsgKey(msg);
-      const map = objectUrlMapRef.current;
-      if (key) {
-        const exist = map.get(key);
-        if (exist) return exist;
-      }
-      try {
-        const url = URL.createObjectURL(msg.meta.fileObj);
-        if (key) map.set(key, url);
-        return url;
-      } catch (_) {
-        return '';
-      }
-    }
-
-    if (msg?.meta?.fileId && window.smartCore) {
+    if (msg.meta?.previewDataUrl) return msg.meta.previewDataUrl;
+    if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
+    if (msg.meta?.fileId && window.smartCore) {
       const u = window.smartCore.play(
         msg.meta.fileId,
         msg.meta.fileName || msg.meta.fileName || '',
       );
       return normalizeVirtualUrl(u);
     }
-    return msg?.txt || '';
+    return msg.txt || '';
   };
 
   return (
@@ -1913,10 +1755,10 @@ previewDataUrl: previewDataUrl || undefined,
         {msgContextMenu.visible && (
           <div
             className="fixed z-[9999] flex flex-col items-center"
-
             style={{
               top: msgContextMenu.y,
-              left: msgContextMenu.x,
+              left: '50%',
+              transform: 'translateX(-50%)',
             }}
             onClick={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
