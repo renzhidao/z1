@@ -175,13 +175,35 @@ const ImageMessage: React.FC<{
   
 
 useEffect(() => {
-  setCurrentSrc(src);
   setHasError(false);
   setIsLoading(true);
   setRetryCount(0);
+
+  let active = true;
     
-  // 超时看门狗
-  const timer = setTimeout(() => {
+  // 延迟加载策略：如果是虚拟路径，稍微等一下 Core/SW 就绪
+  const isVirtual = src.includes('/virtual/file/');
+  const delay = isVirtual ? 600 : 0;
+
+  const t1 = setTimeout(() => {
+    if (active) setCurrentSrc(src);
+  }, delay);
+
+  // 超时看门狗 (延后启动)
+  const t2 = setTimeout(() => {
+     if (!active) return;
+     setIsLoading((loading) => {
+       if (loading) {
+         console.warn('⚠️ [ImageMessage] 超时强制打断:', src);
+         setHasError(true); 
+         return false;
+       }
+       return loading;
+     });
+  }, 5000 + delay);
+
+  return () => { active = false; clearTimeout(t1); clearTimeout(t2); };
+}, [src]);
      setIsLoading((loading) => {
        if (loading) {
          console.warn('⚠️ [ImageMessage] 超时强制打断:', src);
