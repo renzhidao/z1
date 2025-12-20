@@ -894,7 +894,10 @@ const handler = (ev: any) => {
   }
 
 };
+    window.addEventListener('core-ui-update', handler as EventListener);
+
     return () =>
+
       window.removeEventListener('core-ui-update', handler as EventListener);
   }, [chat.id, currentUserId]);
 
