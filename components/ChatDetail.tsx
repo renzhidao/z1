@@ -203,18 +203,7 @@ useEffect(() => {
   }, 5000 + delay);
 
   return () => { active = false; clearTimeout(t1); clearTimeout(t2); };
-}, [src]);
-     setIsLoading((loading) => {
-       if (loading) {
-         console.warn('⚠️ [ImageMessage] 超时强制打断:', src);
-         setHasError(true); // 强制显示错误/重试UI
-         return false;
-       }
-       return loading;
-     });
-  }, 5000);
-  return () => clearTimeout(timer);
-}, [src]);
+  }, [src]);
 
   const handleError = (e: any) => {
     console.error('❌ [ImageMessage] 加载失败:', currentSrc);
