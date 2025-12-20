@@ -728,18 +728,31 @@ const normalizeVirtualUrl = (url: string) => {
     const __cacheKey = 'p1_chat_cache:' + __convId;
     let isMounted = true;
 
-    // 辅助：清洗并处理消息（严防毒消息 + 修复时间戳）
+    // 辅助：清洗、补全URL、修复时间戳
     const processMsgText = (m: any) => {
-      // 1. 基础校验
       if (!m || !m.id) return null;
-      // 2. 媒体消息强校验 (防止Image/Video组件崩溃)
+
+      // 1. 媒体消息：URL补全与毒消息过滤
       if (m.kind === 'image' || m.kind === 'video') {
-         const hasUrl = m.txt && typeof m.txt === 'string' && m.txt.length > 0;
-         const hasMeta = m.meta && m.meta.fileId;
-         if (!hasUrl && !hasMeta) return null; // 丢弃毒消息
+         let url = m.txt;
+         // 如果没 URL 但有 meta，尝试生成 virtual URL
+         if ((!url || typeof url !== 'string') && m.meta && m.meta.fileId) {
+            // 简单模拟 getMediaSrc 的核心逻辑
+            // 注意：这里暂时拿不到 window.smartCore 的实时状态，但构造 virtual path 是安全的
+            // 格式： ./virtual/file/${fileId}/${fileName}
+            const fid = m.meta.fileId;
+            const fname = m.meta.fileName || 'file';
+            url = `./virtual/file/${fid}/${fname}`; 
+         }
+         
+         // 再次校验：如果还是没 URL，丢弃
+         if (!url || typeof url !== 'string' || url.length === 0) return null;
+         
+         // 将补全的 URL 写入对象，供 ImageMessage/VideoMessage 使用
+         m.txt = url; 
       }
-      
-      // 3. 构造文本 (即使 m.text 存在也要往下走，为了重修 timestamp)
+
+      // 2. 构造展示文本 (text 字段)
       let txt = m.text;
       if (!txt) {
          txt = m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName||''}` : 
@@ -747,7 +760,7 @@ const normalizeVirtualUrl = (url: string) => {
                          m.kind === 'voice' ? `[语音] ${m.meta?.fileName||''}` : '');
       }
 
-      // 4. 强制转为 Date 对象 (关键修复：防止 JSON 字符串导致 crash)
+      // 3. 修复时间戳
       return { 
         ...m, 
         text: txt, 
