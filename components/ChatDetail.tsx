@@ -840,10 +840,27 @@ const normalizeVirtualUrl = (url: string) => {
         setMessages(processed);
         setTimeout(scrollToBottom, 100);
 
-        // 4. 顺手存缓存（保留最近100条）
+        // 4. 存缓存（清洗 blob/fileObj 后再存）
         try { 
-          const cut = processed.slice(Math.max(0, processed.length - 100)); 
-          localStorage.setItem(__cacheKey, JSON.stringify(cut)); 
+          const cut = processed.slice(Math.max(0, processed.length - 100));
+          // 深度清洗：确保不存 blob URL 和 fileObj
+          const cleanCut = cut.map((m: any) => {
+            const clone = { ...m };
+            if (clone.meta) {
+              clone.meta = { ...clone.meta };
+              delete clone.meta.fileObj; // fileObj 不可序列化，必须删
+            }
+            // 确保 txt 不是 blob
+            if (typeof clone.txt === 'string' && clone.txt.startsWith('blob:')) {
+              if (clone.meta?.fileId) {
+                clone.txt = `./virtual/file/${clone.meta.fileId}/${clone.meta.fileName || 'file'}`;
+              } else {
+                clone.txt = ''; // 没有 fileId 的 blob 直接清空
+              }
+            }
+            return clone;
+          });
+          localStorage.setItem(__cacheKey, JSON.stringify(cleanCut)); 
         } catch (_) {}
 
       } catch (err) {
