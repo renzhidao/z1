@@ -75,6 +75,7 @@ const formatMessageTime = (date: Date) => {
 };
 
 // --- 辅助组件：语音图标 ---
+
 const VoiceIcon: React.FC<{ isMe: boolean; isPlaying: boolean }> = ({ isMe, isPlaying }) => (
   <div className={`flex items-center justify-center w-5 h-5 ${isMe ? 'rotate-180' : ''}`}>
     <svg
@@ -90,91 +91,182 @@ const VoiceIcon: React.FC<{ isMe: boolean; isPlaying: boolean }> = ({ isMe, isPl
       <path
         d="M5 11a1 1 0 0 1 0 2"
         className={`${isPlaying ? 'animate-voice-1' : ''} text-[#191919]`}
-        style={{ opacity: isPlaying ? 0 : 1 }}
       />
       <path
         d="M8.5 8.5a5 5 0 0 1 0 7"
         className={`${isPlaying ? 'animate-voice-2' : ''} text-[#191919]`}
-        style={{ opacity: isPlaying ? 0 : 1 }}
       />
       <path
         d="M12 6a8 8 0 0 1 0 12"
         className={`${isPlaying ? 'animate-voice-3' : ''} text-[#191919]`}
-        style={{ opacity: isPlaying ? 0 : 1 }}
       />
     </svg>
   </div>
 );
 
 // --- 辅助组件：语音气泡 ---
+
 const VoiceMessage: React.FC<{
+
   duration: number;
+
   isMe: boolean;
+
   isPlaying: boolean;
+
   onPlay: () => void;
+
 }> = ({ duration, isMe, isPlaying, onPlay }) => {
+
   const width = Math.min(Math.max(80 + duration * 6, 80), 240);
+
   const bgColor = isMe ? '#95EC69' : '#FFFFFF';
+
+
+
   return (
+
     <div
-      className={`flex items-center ${isMe ? 'justify-end' : 'justify-start'}`}
+
+      className={'flex items-center ' + (isMe ? 'justify-end' : 'justify-start')}
+
       onClick={(e) => {
+
         e.stopPropagation();
+
         onPlay();
+
       }}
+
     >
+
       <div
-        className={`h-[40px] rounded-[4px] flex items-center px-3 cursor-pointer active:opacity-80 transition-colors select-none relative shadow-sm ${
-          isMe ? 'flex-row-reverse justify-start' : 'flex-row justify-start'
-        }`}
-        style={{ width: `${width}px`, backgroundColor: bgColor }}
+
+        className={
+
+          'h-[40px] rounded-[4px] flex items-center px-3 cursor-pointer active:opacity-80 transition-colors select-none relative shadow-sm ' +
+
+          (isMe ? 'flex-row-reverse justify-start' : 'flex-row justify-start')
+
+        }
+
+        style={{ width: String(width) + 'px', backgroundColor: bgColor }}
+
       >
+
         <div className="flex-shrink-0">
+
           <VoiceIcon isMe={isMe} isPlaying={isPlaying} />
+
         </div>
+
+
+
         <span
-          className={`text-[15px] text-[#191919] font-normal flex-shrink-0 ${
-            isMe ? 'mr-1' : 'ml-1'
-          }`}
+
+          className={
+
+            'text-[15px] text-[#191919] font-normal flex-shrink-0 ' + (isMe ? 'mr-1' : 'ml-1')
+
+          }
+
         >
+
           {duration}"
+
         </span>
+
+
+
         <div
-          className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${
-            isMe ? 'right-[-6px]' : 'left-[-6px]'
-          }`}
+
+          className={
+
+            'absolute top-[14px] w-0 h-0 border-[6px] border-transparent ' +
+
+            (isMe ? 'right-[-6px]' : 'left-[-6px]')
+
+          }
+
           style={{
+
             borderLeftColor: isMe ? bgColor : 'transparent',
+
             borderRightColor: !isMe ? bgColor : 'transparent',
+
             borderTopColor: 'transparent',
+
             borderBottomColor: 'transparent',
+
           }}
-        ></div>
+
+        />
+
       </div>
+
+
+
       {!isMe && !isPlaying && (
+
         <div className="w-2 h-2 bg-[#FA5151] rounded-full ml-2"></div>
+
       )}
+
     </div>
+
   );
+
 };
 
+
+
+
+
+
+
 // --- 辅助组件：图片消息 ---
+
 const ImageMessage: React.FC<{
+
   src: string;
+
   alt: string;
+
   isMe: boolean;
+
   onPreview: (url: string) => void;
+
 }> = ({ src, alt, isMe, onPreview }) => {
+
+
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const [currentSrc, setCurrentSrc] = useState(src);
+  const retryTimerRef = useRef<any>(null);
 
   useEffect(() => {
+    // reset state on src change
+    try {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    } catch (_) {}
+
     setCurrentSrc(src);
     setHasError(false);
     setIsLoading(true);
     setRetryCount(0);
+
+    return () => {
+      try {
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+      } catch (_) {}
+    };
   }, [src]);
 
   const handleError = () => {
@@ -182,55 +274,98 @@ const ImageMessage: React.FC<{
     if (currentSrc.includes('virtual/file/') && retryCount < 3) {
       const nextRetry = retryCount + 1;
       setRetryCount(nextRetry);
-      setTimeout(() => {
+
+      try {
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+      } catch (_) {}
+
+      retryTimerRef.current = setTimeout(() => {
         try {
-          const base = src.split('#')[0];
-          const withBust = base.includes('?') 
-            ? `${base}&r=${Date.now()}` 
-            : `${base}?r=${Date.now()}`;
+          const base = String(src || '').split('#')[0];
+          const withBust = base.includes('?') ? `${base}&r=${Date.now()}` : `${base}?r=${Date.now()}`;
           setCurrentSrc(withBust);
         } catch (_) {}
       }, 800);
-    } else {
-      setHasError(true);
-      setIsLoading(false);
+
+      return;
     }
+    setHasError(true);
+    setIsLoading(false);
   };
 
+
+
   if (hasError) {
+
     return (
+
       <div className="flex flex-col items-center justify-center p-2 bg-gray-50 rounded-[6px] border border-gray-200 min-w-[100px] min-h-[100px]">
-         <div className="text-2xl mb-1">❌</div>
-         <span className="text-[12px] text-red-500">
-           {src.startsWith('blob:') ? '本地图片失效' : '加载失败'}
-         </span>
+
+        <div className="text-2xl mb-1">❌</div>
+
+        <span className="text-[12px] text-red-500">
+
+          {String(src || '').startsWith('blob:') ? '本地图片失效' : '加载失败'}
+
+        </span>
+
       </div>
+
     );
+
   }
 
+
+
   return (
+
     <div className="relative inline-block min-h-[50px] min-w-[50px]">
+
       <img
+
         src={currentSrc}
+
         className={`rounded-[6px] border border-gray-200 max-w-[200px] bg-white object-cover transition-opacity duration-300 ${
+
           isLoading ? 'opacity-0' : 'opacity-100'
+
         }`}
+
         alt={alt}
+
         onClick={(e) => {
           e.stopPropagation();
-          onPreview(src); // 预览原始链接
+
+          onPreview(currentSrc);
+
         }}
+
         onLoad={() => setIsLoading(false)}
+
         onError={handleError}
+
       />
+
       {isLoading && (
+
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-[6px]">
+
           <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+
         </div>
+
       )}
+
     </div>
+
   );
+
 };
+
+
 
 // --- 辅助组件：视频消息 ---
 
@@ -241,57 +376,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
   const [poster, setPoster] = useState<string | null>(posterUrl || null);
 
 
-  /* __P1_CHAT_PERSIST_V1__ */
-  const __p1GetConvId = () => {
-    try {
-      // 优先 chat.id / activeChat / user.id
-      // @ts-ignore
-      const w = window as any;
-      // @ts-ignore
-      const anyChat: any = (typeof (chat as any) !== 'undefined') ? (chat as any) : null;
-      if (anyChat && anyChat.id) return String(anyChat.id);
-      if (w && w.state && w.state.activeChat) return String(w.state.activeChat);
-      // @ts-ignore
-      const anyUser: any = (typeof (user as any) !== 'undefined') ? (user as any) : null;
-      if (anyUser && anyUser.id) return String(anyUser.id);
-    } catch (_) {}
-    return 'all';
-  };
-  const __p1ConvId = __p1GetConvId();
-  const __p1CacheKey = 'p1_chat_cache_v1:' + __p1ConvId;
-
-  const __p1LoadCache = () => {
-    try {
-      const raw = localStorage.getItem(__p1CacheKey);
-      if (!raw) return null;
-      const arr = JSON.parse(raw);
-      if (!Array.isArray(arr)) return null;
-      return arr;
-    } catch (_) {
-      return null;
-    }
-  };
-
-  const __p1SaveCache = (arr: any[]) => {
-    try {
-      if (!Array.isArray(arr)) return;
-      const cut = arr.slice(Math.max(0, arr.length - 300));
-      localStorage.setItem(__p1CacheKey, JSON.stringify(cut));
-    } catch (_) {}
-  };
-
-  const __p1FetchRecent = async () => {
-    try {
-      // @ts-ignore
-      const w = window as any;
-      const db = w && w.db;
-      if (db && typeof db.getRecent === 'function') {
-        const list = await db.getRecent(300, __p1ConvId);
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return null;
-  };
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -661,10 +745,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
       if (!raw) return null;
       const arr = JSON.parse(raw);
       if (!Array.isArray(arr)) return null;
+
       return arr
         .map((m: any) => {
-          const ts = (m && (m.ts ?? m.timestamp ?? m.time)) ?? Date.now();
-          return { ...m, timestamp: new Date(ts) };
+          const t = m?.ts ?? m?.timestamp ?? m?.time ?? Date.now();
+          const ts = typeof t === 'number' ? t : Number(t) || Date.now();
+          return { ...m, ts, timestamp: new Date(ts) };
         })
         .filter(Boolean);
     } catch (_) {
@@ -675,29 +761,27 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const __p1SaveChatCache = (arr: any[]) => {
     try {
       if (!Array.isArray(arr)) return;
-      const cut = arr.slice(Math.max(0, arr.length - 300));
-      let pendingPreviewKept = 0;
+const cut = arr; // 不做主动条数上限（仍受 localStorage 配额限制）
+// pendingPreviewKept removed: no proactive previewDataUrl limit
 
       const safe = cut.map((m: any) => {
-        const mm: any = m ? { ...m } : m;
+        const mm: any = m && typeof m === 'object' ? { ...m } : m;
         if (!mm || typeof mm !== 'object') return mm;
+
+        // 统一 ts（避免缓存恢复后 ts 丢失导致乱序/去重失败）
+        const rawT = mm.ts ?? mm.timestamp ?? mm.time ?? Date.now();
+        const ts = typeof rawT === 'number' ? rawT : Number(rawT) || Date.now();
+        mm.ts = ts;
+
+        // localStorage 中不存 Date，统一存 number，load 时再转 Date
+        mm.timestamp = ts;
 
         const meta: any = mm.meta && typeof mm.meta === 'object' ? { ...mm.meta } : undefined;
         if (meta && meta.fileObj) delete meta.fileObj; // File 无法 JSON 化
 
-        // 仅对待上传图片保留少量 previewDataUrl，避免 localStorage 爆掉
-        if (meta && meta.__pending && typeof meta.previewDataUrl === 'string') {
-          pendingPreviewKept += 1;
-          const tooMany = pendingPreviewKept > 8;
-          const tooBig = meta.previewDataUrl.length > 260000;
-          if (tooMany || tooBig) delete meta.previewDataUrl;
-        } else if (meta && meta.previewDataUrl) {
-          delete meta.previewDataUrl;
-        }
+// 不做主动限制：尽量完整缓存（仍受 localStorage 配额限制）
 
         mm.meta = meta;
-        // 不缓存 Date 对象，统一靠 ts 恢复
-        if (mm.timestamp instanceof Date) mm.timestamp = (mm.ts ?? (mm.timestamp as Date).getTime());
         return mm;
       });
 
@@ -709,15 +793,42 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
     try {
       const cached = __p1LoadChatCache();
       if (cached && cached.length) {
-        setMessages(cached as any);
+        const filtered = cached.filter((m: any) => {
+const hasLocalMedia = !!(m?.meta?.__pending || m?.meta?.previewDataUrl || m?.meta?.fileObj);
+          const isBroken =
+            (m?.kind === 'image' || m?.kind === 'video') &&
+            !m?.txt &&
+            !m?.meta?.fileId &&
+            !hasLocalMedia;
+          return !isBroken;
+        });
+        setMessages(filtered as any);
       }
     } catch (_) {}
   }, [__p1ChatCacheKey]);
 
+
   useEffect(() => {
+    let t: any = null;
     try {
-      __p1SaveChatCache(messages as any);
+      // debounce localStorage writes (no limits; just avoid blocking UI on rapid message updates)
+      t = setTimeout(() => {
+        try {
+          __p1SaveChatCache(messages as any);
+        } catch (_) {}
+      }, 300);
     } catch (_) {}
+
+    return () => {
+      try {
+        if (t) {
+          clearTimeout(t);
+          t = null;
+          // best-effort flush on cleanup
+          try { __p1SaveChatCache(messages as any); } catch (_) {}
+        }
+      } catch (_) {}
+    };
   }, [__p1ChatCacheKey, messages]);
 
   const [inputValue, setInputValue] = useState('');
@@ -746,10 +857,76 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const voiceStartTimeRef = useRef<number>(0);
-const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+
+  // ObjectURL cache: avoid creating new blob: URLs on every render; revoke when messages removed/unmount.
+  const objectUrlMapRef = useRef<Map<string, string>>(new Map());
+
+  const getMsgKey = (m: any) => {
+    try {
+      const id = m?.id;
+      const cid = m?.meta?.clientMsgId || m?.meta?.clientMsgID || m?.clientMsgId || m?.clientMsgID;
+
+      if (id != null) return `id:${String(id)}`;
+      if (cid) return `cid:${String(cid)}`;
+
+      const fo: any = m?.meta?.fileObj;
+      if (fo && typeof fo === 'object') {
+        const n = fo.name != null ? String(fo.name) : '';
+        const s = fo.size != null ? String(fo.size) : '';
+        const t = fo.type != null ? String(fo.type) : '';
+        const lm = fo.lastModified != null ? String(fo.lastModified) : '';
+        if (n || s || t || lm) return `fo:${n}|${s}|${t}|${lm}`;
+      }
+
+      const sid = m?.senderId != null ? String(m.senderId) : '';
+      const kind = m?.kind != null ? String(m.kind) : '';
+      const ts = m?.ts != null ? String(m.ts) : '';
+      const fn = m?.meta?.fileName != null ? String(m.meta.fileName) : '';
+      const fsRaw = m?.meta?.fileSize ?? m?.meta?.size;
+      const fs = fsRaw != null ? String(fsRaw) : '';
+
+      if (sid || kind || ts || fn || fs) return `f:${sid}|${kind}|${fn}|${fs}|${ts}`;
+      return '';
+    } catch (_) {
+      return '';
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      try {
+        for (const url of objectUrlMapRef.current.values()) {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+        }
+      } catch (_) {}
+      try { objectUrlMapRef.current.clear(); } catch (_) {}
+    };
+  }, []);
+
+  useEffect(() => {
+    // revoke urls for messages that are no longer in list
+    try {
+      const alive = new Set<string>();
+      for (const m of (messages as any[])) {
+        const k = getMsgKey(m);
+        if (k) alive.add(k);
+      }
+      const map = objectUrlMapRef.current;
+      for (const [k, url] of Array.from(map.entries())) {
+        if (!alive.has(k)) {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+          map.delete(k);
+        }
+      }
+    } catch (_) {}
+  }, [messages]);
+
   const pressToRecordRef = useRef<boolean>(false);
   const cancelRecordRef = useRef<boolean>(false);
   const recordReqIdRef = useRef<number>(0);
@@ -843,7 +1020,7 @@ const normalizeVirtualUrl = (url: string) => {
     const processMessages = (msgs: any[]) => {
       // 过滤破损媒体消息（没有 txt 且没有 meta.fileId 的 image/video）
       const filtered = msgs.filter((m) => {
-        const hasLocalMedia = !!(m.meta && (m.meta.fileObj || m.meta.previewDataUrl));
+const hasLocalMedia = !!(m.meta && (m.meta.__pending || m.meta.fileObj || m.meta.previewDataUrl));
         const isBroken =
           (m.kind === 'image' || m.kind === 'video') &&
           !m.txt &&
@@ -870,24 +1047,76 @@ const normalizeVirtualUrl = (url: string) => {
     };
 
     if (window.db) {
-      window.db.getRecent(50, chat.id).then((msgs: any[]) => {
-        const dbList = processMessages(msgs);
+window.db.getRecent(50, chat.id).then((msgs: any[]) => {
+        const dbList = processMessages(Array.isArray(msgs) ? msgs : []);
+
         setMessages((prev) => {
-          const pending = Array.isArray(prev)
-            ? (prev as any[]).filter((m: any) => m && m.meta && m.meta.__pending)
-            : [];
-          const byId = new Map<string, any>();
-          for (const m of [...dbList, ...pending]) {
-            const id = m && m.id != null ? String(m.id) : `noid_${Math.random()}`;
-            if (!byId.has(id) || !(byId.get(id) as any).meta?.__pending) byId.set(id, m);
+          const prevArr = Array.isArray(prev) ? (prev as any[]) : [];
+
+          const getClientId = (m: any) =>
+            (m && m.meta && (m.meta.clientMsgId || m.meta.clientMsgID)) ||
+            (m && (m.clientMsgId || m.clientMsgID)) ||
+            null;
+
+          const dbIds = new Set<string>();
+          const dbClientIds = new Set<string>();
+
+          for (const m of dbList) {
+            if (m && m.id != null) dbIds.add(String(m.id));
+            const cid = getClientId(m);
+            if (cid) dbClientIds.add(String(cid));
           }
-          return Array.from(byId.values()).sort((a: any, b: any) => (a.ts || 0) - (b.ts || 0));
+
+          // 保留缓存/本地消息，但移除已被 DB 回执覆盖的 pending，避免重复/两条
+          const keepPrev = prevArr.filter((m: any) => {
+            if (!m) return false;
+            if (m.meta && m.meta.__pending) {
+              const mid = m.id != null ? String(m.id) : '';
+              const mcid = getClientId(m);
+              if (mid && (dbIds.has(mid) || dbClientIds.has(mid))) return false;
+              if (mcid && dbClientIds.has(String(mcid))) return false;
+            }
+            return true;
+          });
+
+          const keyOf = (m: any) => {
+            const id = m && m.id != null ? String(m.id) : '';
+            if (id) return `id:${id}`;
+            const cid = getClientId(m);
+            if (cid) return `cid:${String(cid)}`;
+            const kind = m && m.kind ? String(m.kind) : '';
+            const sid = m && m.senderId ? String(m.senderId) : '';
+            const ts = m && m.ts != null ? String(m.ts) : '';
+            const fn = m && m.meta && m.meta.fileName ? String(m.meta.fileName) : '';
+            const fs =
+              m && m.meta && (m.meta.fileSize || m.meta.size)
+                ? String(m.meta.fileSize || m.meta.size)
+                : '';
+            return `f:${sid}|${kind}|${fn}|${fs}|${ts}`;
+          };
+
+          const byKey = new Map<string, any>();
+          // 先放 prev(缓存/本地)，再用 DB 覆盖（DB 更权威）
+          for (const m of keepPrev) {
+            if (!m) continue;
+            byKey.set(keyOf(m), m);
+          }
+          for (const m of dbList) {
+            if (!m) continue;
+            byKey.set(keyOf(m), m);
+          }
+
+const out = Array.from(byKey.values()).sort(
+            (a: any, b: any) => (a.ts || 0) - (b.ts || 0),
+          );
+          return out;
         });
+
         setTimeout(scrollToBottom, 100);
       });
     }
 
-const handler = (ev: any) => {
+    const handler = (ev: any) => {
 
   try {
 
@@ -919,7 +1148,7 @@ const handler = (ev: any) => {
 
 
 
-    const hasLocalMedia = !!(raw.meta && ((raw.meta as any).fileObj || (raw.meta as any).previewDataUrl));
+const hasLocalMedia = !!(raw.meta && (((raw.meta as any).__pending) || (raw.meta as any).fileObj || (raw.meta as any).previewDataUrl));
     const isBroken =
       (raw.kind === 'image' || raw.kind === 'video') &&
       !raw.txt &&
@@ -958,11 +1187,49 @@ const handler = (ev: any) => {
 
 
     setMessages((prev) => {
+      const arr = Array.isArray(prev) ? (prev as any[]) : [];
 
-      if (prev.find((m) => m.id === newMsg.id)) return prev;
+      const clientId =
+        (newMsg as any).meta?.clientMsgId ||
+        (newMsg as any).meta?.clientMsgID ||
+        (newMsg as any).clientMsgId ||
+        (newMsg as any).clientMsgID ||
+        null;
 
-      return [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts);
+      const isDupOrPending = (m: any) => {
+        if (!m) return false;
 
+        // 1) 优先用 clientMsgId 精准替换 pending
+        if (clientId) {
+          if (m.id != null && String(m.id) === String(clientId)) return true;
+          const mcid = m.meta?.clientMsgId || m.meta?.clientMsgID || m.clientMsgId || m.clientMsgID;
+          if (mcid && String(mcid) === String(clientId)) return true;
+        }
+
+        // 2) 兜底：同一张待上传图片（文件名+大小+时间窗）替换
+        if ((newMsg as any).kind === 'image' && (newMsg as any).senderId === currentUserId) {
+          if (m.meta?.__pending && m.kind === 'image') {
+            const fn1 = m.meta?.fileName || '';
+            const fn2 = (newMsg as any).meta?.fileName || '';
+            const s1 = m.meta?.fileSize || m.meta?.size || null;
+            const s2 = (newMsg as any).meta?.fileSize || (newMsg as any).meta?.size || null;
+            const t1 = m.ts || 0;
+            const t2 = (newMsg as any).ts || 0;
+            const dt = Math.abs(Number(t1) - Number(t2));
+            if (fn1 && fn2 && fn1 === fn2 && s1 && s2 && Number(s1) == Number(s2) && dt < 20000) return true;
+          }
+        }
+
+        return false;
+      };
+
+      const filtered = arr.filter((m) => !isDupOrPending(m));
+
+      // 去重：同 id 不重复插入
+      if (filtered.find((m) => m && m.id === newMsg.id)) return filtered;
+
+const out = [...filtered, newMsg].sort((a: any, b: any) => (a.ts || 0) - (b.ts || 0));
+      return out;
     });
 
     setTimeout(scrollToBottom, 100);
@@ -1157,11 +1424,17 @@ const handler = (ev: any) => {
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // 允许再次选择同一个文件也能触发 onChange
+    try {
+      e.target.value = '';
+    } catch (_) {}
     if (!file) return;
+
 
     // 只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META（对齐旧前端）
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
+    else if (file.type.startsWith('video/')) kind = 'video';
 
     const localId = `local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
@@ -1217,7 +1490,7 @@ const handler = (ev: any) => {
         senderId: currentUserId,
         target: chat.id,
         ts: Date.now(),
-        txt: previewDataUrl || '',
+txt: '',
         meta: {
           fileName: file.name,
           fileType: file.type,
@@ -1304,17 +1577,35 @@ const handler = (ev: any) => {
   ];
 
   // 媒体 URL：对齐旧版 smartCore.play + 修正 /core/ 作用域
+
+
   const getMediaSrc = (msg: any) => {
-    if (msg.meta?.previewDataUrl) return msg.meta.previewDataUrl;
-    if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
-    if (msg.meta?.fileId && window.smartCore) {
+    if (msg?.meta?.previewDataUrl) return msg.meta.previewDataUrl;
+
+    if (msg?.meta?.fileObj) {
+      const key = getMsgKey(msg);
+      const map = objectUrlMapRef.current;
+      if (key) {
+        const exist = map.get(key);
+        if (exist) return exist;
+      }
+      try {
+        const url = URL.createObjectURL(msg.meta.fileObj);
+        if (key) map.set(key, url);
+        return url;
+      } catch (_) {
+        return '';
+      }
+    }
+
+    if (msg?.meta?.fileId && window.smartCore) {
       const u = window.smartCore.play(
         msg.meta.fileId,
         msg.meta.fileName || msg.meta.fileName || '',
       );
       return normalizeVirtualUrl(u);
     }
-    return msg.txt || '';
+    return msg?.txt || '';
   };
 
   return (
@@ -1562,10 +1853,10 @@ const handler = (ev: any) => {
         {msgContextMenu.visible && (
           <div
             className="fixed z-[9999] flex flex-col items-center"
+
             style={{
               top: msgContextMenu.y,
-              left: '50%',
-              transform: 'translateX(-50%)',
+              left: msgContextMenu.x,
             }}
             onClick={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
