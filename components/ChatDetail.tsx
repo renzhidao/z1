@@ -219,7 +219,7 @@ useEffect(() => {
   if (hasError) {
     return (
       <div 
-        className="flex flex-col items-center justify-center p-2 bg-gray-50 rounded-[6px] border border-gray-200 min-w-[100px] min-h-[100px] cursor-pointer active:bg-gray-200 select-none"
+        className="flex flex-col items-center justify-center p-2 bg-gray-50 rounded-[6px] border border-gray-200 min-w-[100px] min-h-[100px] cursor-pointer active:bg-gray-200 select-none relative group"
         onClick={(e) => {
           e.stopPropagation();
           // 手动重试
@@ -232,14 +232,34 @@ useEffect(() => {
       >
          <div className="text-2xl mb-1">↻</div>
          <span className="text-[12px] text-gray-500">点击重试</span>
-         <div className="text-[10px] text-gray-300 mt-1 max-w-[80px] truncate">加载失败</div>
-         {/* 调试用：显示真实URL */}
-         <input 
-           className="mt-1 w-[80px] text-[8px] text-gray-400 bg-transparent border-none p-0 text-center select-all" 
-           value={currentSrc} 
-           readOnly 
-           onClick={e => e.stopPropagation()} 
-         />
+         
+         {/* 调试区：点击输入框不会触发重试，长按可全选 */}
+         <div 
+           className="mt-2 flex flex-col items-center z-10"
+           onClick={e => e.stopPropagation()}
+         >
+           <input 
+             className="w-[100px] text-[10px] bg-white border border-gray-300 rounded px-1 text-center"
+             value={currentSrc || ''}
+             readOnly
+             onFocus={e => e.target.select()} // 聚焦自动全选
+           />
+           <button
+             className="mt-1 text-[10px] text-blue-500 underline"
+             onClick={(e) => {
+               e.stopPropagation();
+               try {
+                 navigator.clipboard.writeText(currentSrc || '');
+                 // 这里简单 alert 或 toast 一下
+                 alert('已复制: ' + currentSrc);
+               } catch (_) {
+                 prompt('请手动复制', currentSrc);
+               }
+             }}
+           >
+             复制链接
+           </button>
+         </div>
       </div>
     );
   }
