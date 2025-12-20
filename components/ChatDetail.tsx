@@ -822,137 +822,109 @@ const normalizeVirtualUrl = (url: string) => {
     window.addEventListener('p1-call-incoming', onIncoming as any);
     return () => window.removeEventListener('p1-call-incoming', onIncoming as any);
   }, [chat.id]);
-// --- 核心逻辑注入：数据加载与监听 ---
+// --- [AI修复 v2] 核心逻辑：数据加载/缓存/监听/防白屏 ---
   useEffect(() => {
-    const processMessages = (msgs: any[]) => {
-      // 过滤破损媒体消息（没有 txt 且没有 meta.fileId 的 image/video）
-      const filtered = msgs.filter((m) => {
-        const isBroken =
-          (m.kind === 'image' || m.kind === 'video') &&
-          !m.txt &&
-          !(m.meta && m.meta.fileId);
-        return !isBroken;
-      });
+    const __convId = chat.id;
+    const __cacheKey = 'p1_chat_cache:' + __convId;
+    let isMounted = true;
 
-      return filtered
-        .map((m) => ({
-          ...m,
-          text:
-            m.txt ||
-            (m.kind === 'SMART_FILE_UI'
-              ? `[文件] ${m.meta?.fileName}`
-              : m.kind === 'image'
-              ? '[图片]'
-              : m.kind === 'voice'
-              ? `[语音] ${m.meta?.fileName}`
-              : ''),
-          timestamp: new Date(m.ts),
-        }))
-        .sort((a: any, b: any) => a.ts - b.ts);
+    // 辅助：处理消息展示文本（兼容旧逻辑）
+    const processMsgText = (m: any) => {
+      if (m.text) return m;
+      const txt = m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName||''}` : 
+                            m.kind === 'image' ? '[图片]' : 
+                            m.kind === 'voice' ? `[语音] ${m.meta?.fileName||''}` : '');
+      return { ...m, text: txt, timestamp: new Date(m.ts) };
     };
 
-    if (window.db) {
-      window.db.getRecent(50, chat.id).then((msgs: any[]) => {
-        setMessages(processMessages(msgs));
+    // 安全设置消息（防白屏核心）
+    const safeSetMessages = (list: any[]) => {
+      if (!isMounted) return;
+      try {
+        if (!Array.isArray(list)) return;
+        // 1. 强力过滤无效项
+        const valid = list.filter(x => x && typeof x === 'object' && x.id);
+        if (valid.length === 0 && list.length > 0) return; // 全是脏数据，忽略
+
+        // 2. 格式化文本 + 排序
+        const processed = valid.map(processMsgText).sort((a: any, b: any) => a.ts - b.ts);
+        
+        // 3. 提交渲染
+        setMessages(processed);
         setTimeout(scrollToBottom, 100);
-      });
-    }
 
-const handler = (ev: any) => {
+        // 4. 顺手存缓存（保留最近100条）
+        try { 
+          const cut = processed.slice(Math.max(0, processed.length - 100)); 
+          localStorage.setItem(__cacheKey, JSON.stringify(cut)); 
+        } catch (_) {}
 
-  try {
-
-    const detail = ev && (ev as any).detail;
-
-    if (!detail || typeof detail !== 'object') return;
-
-    const type = (detail as any).type;
-
-    const data = (detail as any).data;
-
-    if (type !== 'msg' || !data) return;
-
-
-
-    const raw = data;
-
-    const isPublic = chat.id === 'all' && raw.target === 'all';
-
-    const isRelated =
-
-      (raw.senderId === chat.id && raw.target === currentUserId) ||
-
-      (raw.senderId === currentUserId && raw.target === chat.id);
-
-
-
-    if (!(isPublic || isRelated)) return;
-
-
-
-    const isBroken =
-
-      (raw.kind === 'image' || raw.kind === 'video') &&
-
-      !raw.txt &&
-
-      !(raw.meta && raw.meta.fileId);
-
-    if (isBroken) return;
-
-
-
-    const newMsg = {
-
-      ...raw,
-
-      text:
-
-        raw.txt ||
-
-        (raw.kind === 'SMART_FILE_UI'
-
-          ? `[文件] ${raw.meta?.fileName}`
-
-          : raw.kind === 'image'
-
-          ? '[图片]'
-
-          : raw.kind === 'voice'
-
-          ? `[语音] ${raw.meta?.fileName}`
-
-          : ''),
-
-      timestamp: new Date(raw.ts),
-
+      } catch (err) {
+        console.warn('消息处理防白屏拦截:', err);
+      }
     };
 
+    // A. 加载流程：缓存 -> DB
+    const load = async () => {
+      // 1. 先读缓存(同步秒开)
+      try {
+        const raw = localStorage.getItem(__cacheKey);
+        if (raw) safeSetMessages(JSON.parse(raw));
+      } catch (_) {}
 
+      // 2. 再读DB(异步更新)
+      try {
+        // @ts-ignore
+        if (window.db && window.db.getRecent) {
+          // @ts-ignore
+          const dbList = await window.db.getRecent(50, __convId);
+          if (dbList && Array.isArray(dbList)) safeSetMessages(dbList);
+        }
+      } catch (_) {}
+    };
+    load();
 
-    setMessages((prev) => {
+    // B. 监听流程：实时消息
+    const handler = (ev: any) => {
+      try {
+        const d = ev.detail?.data;
+        if (!d || ev.detail.type !== 'msg') return;
+        
+        // 权限校验
+        const isPublic = __convId === 'all' && d.target === 'all';
+        const isMe = d.senderId === currentUserId; 
+        const isRelated = (d.senderId === __convId && d.target === currentUserId) || (isMe && d.target === __convId);
+        
+        if (!isPublic && !isRelated) return;
 
-      if (prev.find((m) => m.id === newMsg.id)) return prev;
+        // 脏数据拦截
+        if (!d.id) return;
+        // 破损媒体拦截
+        if ((d.kind === 'image' || d.kind === 'video') && !d.txt && !d.meta?.fileId) return;
 
-      return [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts);
+        const newMsg = processMsgText(d);
 
-    });
+        setMessages(prev => {
+          if (prev.find(m => m.id === newMsg.id)) return prev;
+          const next = [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts);
+          
+          // 更新缓存
+          try {
+             const cut = next.slice(Math.max(0, next.length - 100));
+             localStorage.setItem(__cacheKey, JSON.stringify(cut));
+          } catch (_) {}
+          
+          return next;
+        });
+        setTimeout(scrollToBottom, 100);
+      } catch (e) { console.error('监听错误', e); }
+    };
 
-    setTimeout(scrollToBottom, 100);
-
-  } catch (err) {
-
-    try { console.error('core-ui-update handler error', err); } catch (_) {}
-
-  }
-
-};
-
-
-
-window.addEventListener('core-ui-update', handler as EventListener);
-    return () =>
-      window.removeEventListener('core-ui-update', handler as EventListener);
+    window.addEventListener('core-ui-update', handler);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('core-ui-update', handler);
+    };
   }, [chat.id, currentUserId]);
 
   const handleSendText = async () => {
