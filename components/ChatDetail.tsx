@@ -790,26 +790,18 @@ const normalizeVirtualUrl = (url: string) => {
       // 1. 媒体消息：URL补全与毒消息过滤
       if (m.kind === 'image' || m.kind === 'video') {
          let url = m.txt;
-         
-         // 关键修复：如果 URL 是临时的 blob:（已失效），强制置空，以便下方重新生成
-         if (typeof url === 'string' && url.startsWith('blob:')) {
-            url = null;
-         }
 
-         // 如果没 URL (或被置空) 但有 meta，尝试生成 virtual URL
-         if ((!url || typeof url !== 'string') && m.meta && m.meta.fileId) {
-            // 简单模拟 getMediaSrc 的核心逻辑
-            // 注意：这里暂时拿不到 window.smartCore 的实时状态，但构造 virtual path 是安全的
-            // 格式： ./virtual/file/${fileId}/${fileName}
+         // 策略变更：只要有 fileId，强制使用虚拟路径（放弃不稳定的 blob/本地路径）
+         if (m.meta && m.meta.fileId) {
             const fid = m.meta.fileId;
             const fname = m.meta.fileName || 'file';
             url = `./virtual/file/${fid}/${fname}`; 
-         }
+         } 
+         // 如果没有 fileId 但有 url（比如纯网络图），则保留原 url
          
-         // 再次校验：如果还是没 URL，丢弃
+         // 再次校验：如果 URL 无效，丢弃
          if (!url || typeof url !== 'string' || url.length === 0) return null;
          
-         // 将补全的 URL 写入对象，供 ImageMessage/VideoMessage 使用
          m.txt = url; 
       }
 
