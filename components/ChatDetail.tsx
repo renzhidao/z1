@@ -1162,16 +1162,19 @@ const normalizeVirtualUrl = (url: string) => {
     { icon: <Smartphone size={24} />, label: '文件', action: () => handleFileAction('file') },
   ];
 
-  // 媒体 URL：对齐旧版 smartCore.play + 修正 /core/ 作用域
+  // 媒体 URL：优先使用 fileId 虚拟路径（稳定），fileObj 仅作降级
   const getMediaSrc = (msg: any) => {
-    if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
+    // 1. 优先使用 fileId 生成虚拟路径（持久有效）
     if (msg.meta?.fileId && window.smartCore) {
       const u = window.smartCore.play(
         msg.meta.fileId,
-        msg.meta.fileName || msg.meta.fileName || '',
+        msg.meta.fileName || 'file',
       );
       return normalizeVirtualUrl(u);
     }
+    // 2. 降级：使用 fileObj 创建 blob URL（仅对刚发送的消息有效，刷新后失效）
+    if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
+    // 3. 兜底：使用 txt 字段（可能是远程 URL 或虚拟路径）
     return msg.txt || '';
   };
 
