@@ -170,56 +170,7 @@ const ImageMessage: React.FC<{
   const [retryCount, setRetryCount] = useState(0);
   const [currentSrc, setCurrentSrc] = useState(src);
 
-  // --- [AI修复] 恢复历史记录，但增加防白屏过滤 ---
-  useEffect(() => {
-    // 封装安全设置函数：过滤 null/undefined，防止渲染崩溃
-    const safeSetMessages = (list: any) => {
-      try {
-        if (Array.isArray(list) && list.length > 0) {
-          // 关键：过滤掉无效项，防止白屏
-          const valid = list.filter((x: any) => x && typeof x === 'object' && x.id);
-          if (valid.length > 0) {
-            // @ts-ignore
-            setMessages(valid);
-            try { __p1SaveCache(valid); } catch (_) {}
-          }
-        }
-      } catch (err) {
-        console.warn("历史消息解析失败(已忽略，防止白屏):", err);
-      }
-    };
 
-    // 1. 先读缓存
-    try {
-      const cached = __p1LoadCache();
-      safeSetMessages(cached);
-    } catch (_) {}
-
-    // 2. 再读 DB
-    __p1FetchRecent().then((list) => {
-      safeSetMessages(list);
-    }).catch(() => {});
-
-    // 3. 监听外部刷新
-    const handler = () => {
-      __p1FetchRecent().then((list) => safeSetMessages(list));
-    };
-
-    window.addEventListener('core-ui-update', handler as any);
-    return () => window.removeEventListener('core-ui-update', handler as any);
-  }, [__p1ConvId]);
-
-  // 兜底：状态变化落盘（加固）
-  useEffect(() => {
-    try {
-      // @ts-ignore
-      if (Array.isArray(messages) && messages.length > 0) {
-         // @ts-ignore
-         __p1SaveCache(messages);
-      }
-    } catch (_) {}
-  }, [__p1ConvId, messages]);
-  // ---------------------------------------------
 
   
 
@@ -294,57 +245,6 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
   const [poster, setPoster] = useState<string | null>(posterUrl || null);
 
 
-  /* __P1_CHAT_PERSIST_V1__ */
-  const __p1GetConvId = () => {
-    try {
-      // 优先 chat.id / activeChat / user.id
-      // @ts-ignore
-      const w = window as any;
-      // @ts-ignore
-      const anyChat: any = (typeof (chat as any) !== 'undefined') ? (chat as any) : null;
-      if (anyChat && anyChat.id) return String(anyChat.id);
-      if (w && w.state && w.state.activeChat) return String(w.state.activeChat);
-      // @ts-ignore
-      const anyUser: any = (typeof (user as any) !== 'undefined') ? (user as any) : null;
-      if (anyUser && anyUser.id) return String(anyUser.id);
-    } catch (_) {}
-    return 'all';
-  };
-  const __p1ConvId = __p1GetConvId();
-  const __p1CacheKey = 'p1_chat_cache_v1:' + __p1ConvId;
-
-  const __p1LoadCache = () => {
-    try {
-      const raw = localStorage.getItem(__p1CacheKey);
-      if (!raw) return null;
-      const arr = JSON.parse(raw);
-      if (!Array.isArray(arr)) return null;
-      return arr;
-    } catch (_) {
-      return null;
-    }
-  };
-
-  const __p1SaveCache = (arr: any[]) => {
-    try {
-      if (!Array.isArray(arr)) return;
-      const cut = arr.slice(Math.max(0, arr.length - 300));
-      localStorage.setItem(__p1CacheKey, JSON.stringify(cut));
-    } catch (_) {}
-  };
-
-  const __p1FetchRecent = async () => {
-    try {
-      // @ts-ignore
-      const w = window as any;
-      const db = w && w.db;
-      if (db && typeof db.getRecent === 'function') {
-        const list = await db.getRecent(300, __p1ConvId);
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return null;
-  };
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   const cleanupRef = useRef<(() => void) | null>(null);
