@@ -1162,19 +1162,18 @@ const normalizeVirtualUrl = (url: string) => {
     { icon: <Smartphone size={24} />, label: '文件', action: () => handleFileAction('file') },
   ];
 
-  // 媒体 URL：优先使用 fileId 虚拟路径（稳定），fileObj 仅作降级
+  // 媒体 URL：强制使用虚拟路径（不再依赖 smartCore 是否加载）
   const getMediaSrc = (msg: any) => {
-    // 1. 优先使用 fileId 生成虚拟路径（持久有效）
-    if (msg.meta?.fileId && window.smartCore) {
-      const u = window.smartCore.play(
-        msg.meta.fileId,
-        msg.meta.fileName || 'file',
-      );
-      return normalizeVirtualUrl(u);
+    // 1. 只要有 fileId，就强制使用虚拟路径
+    if (msg.meta?.fileId) {
+      const fid = msg.meta.fileId;
+      const fname = msg.meta.fileName || 'file';
+      // 直接构造虚拟路径，不依赖 smartCore
+      return normalizeVirtualUrl(`./virtual/file/${fid}/${fname}`);
     }
-    // 2. 降级：使用 fileObj 创建 blob URL（仅对刚发送的消息有效，刷新后失效）
+    // 2. 降级：使用 fileObj（仅对刚发送且无 fileId 的消息）
     if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
-    // 3. 兜底：使用 txt 字段（可能是远程 URL 或虚拟路径）
+    // 3. 兜底：使用 txt 字段
     return msg.txt || '';
   };
 
