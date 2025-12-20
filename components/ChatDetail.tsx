@@ -232,7 +232,14 @@ useEffect(() => {
       >
          <div className="text-2xl mb-1">↻</div>
          <span className="text-[12px] text-gray-500">点击重试</span>
-         <div className="text-[10px] text-gray-300 mt-1 max-w-[80px] truncate">图片加载超时</div>
+         <div className="text-[10px] text-gray-300 mt-1 max-w-[80px] truncate">加载失败</div>
+         {/* 调试用：显示真实URL */}
+         <input 
+           className="mt-1 w-[80px] text-[8px] text-gray-400 bg-transparent border-none p-0 text-center select-all" 
+           value={currentSrc} 
+           readOnly 
+           onClick={e => e.stopPropagation()} 
+         />
       </div>
     );
   }
