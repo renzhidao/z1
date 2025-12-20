@@ -175,11 +175,24 @@ const ImageMessage: React.FC<{
   
 
 useEffect(() => {
-    setCurrentSrc(src);
-    setHasError(false);
-    setIsLoading(true);
-    setRetryCount(0);
-  }, [src]);
+  setCurrentSrc(src);
+  setHasError(false);
+  setIsLoading(true);
+  setRetryCount(0);
+    
+  // 超时看门狗
+  const timer = setTimeout(() => {
+     setIsLoading((loading) => {
+       if (loading) {
+         console.warn('⚠️ [ImageMessage] 超时强制打断:', src);
+         setHasError(true); // 强制显示错误/重试UI
+         return false;
+       }
+       return loading;
+     });
+  }, 5000);
+  return () => clearTimeout(timer);
+}, [src]);
 
   const handleError = (e: any) => {
     console.error('❌ [ImageMessage] 加载失败:', currentSrc);
