@@ -728,8 +728,17 @@ const normalizeVirtualUrl = (url: string) => {
     const __cacheKey = 'p1_chat_cache:' + __convId;
     let isMounted = true;
 
-    // 辅助：处理消息展示文本（兼容旧逻辑）
+    // 辅助：清洗并处理消息（严防毒消息）
     const processMsgText = (m: any) => {
+      // 1. 基础校验
+      if (!m || !m.id) return null;
+      // 2. 媒体消息强校验 (防止Image/Video组件崩溃)
+      if (m.kind === 'image' || m.kind === 'video') {
+         const hasUrl = m.txt && typeof m.txt === 'string' && m.txt.length > 0;
+         const hasMeta = m.meta && m.meta.fileId;
+         if (!hasUrl && !hasMeta) return null; // 丢弃毒消息
+      }
+      
       if (m.text) return m;
       const txt = m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName||''}` : 
                             m.kind === 'image' ? '[图片]' : 
@@ -742,12 +751,15 @@ const normalizeVirtualUrl = (url: string) => {
       if (!isMounted) return;
       try {
         if (!Array.isArray(list)) return;
-        // 1. 强力过滤无效项
+        // 1. 初步过滤
         const valid = list.filter(x => x && typeof x === 'object' && x.id);
-        if (valid.length === 0 && list.length > 0) return; // 全是脏数据，忽略
+        if (valid.length === 0 && list.length > 0) return;
 
-        // 2. 格式化文本 + 排序
-        const processed = valid.map(processMsgText).sort((a: any, b: any) => a.ts - b.ts);
+        // 2. 深度清洗(过滤null) + 格式化 + 排序
+        const processed = valid
+          .map(processMsgText)
+          .filter((x: any) => x !== null) // 关键：剔除 processMsgText 返回的 null
+          .sort((a: any, b: any) => a.ts - b.ts);
         
         // 3. 提交渲染
         setMessages(processed);
