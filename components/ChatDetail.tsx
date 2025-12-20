@@ -171,49 +171,7 @@ const ImageMessage: React.FC<{
   const [currentSrc, setCurrentSrc] = useState(src);
 
   
-  // 从本地缓存/DB 恢复消息：退出重进不丢（语音/视频/文件同样保留）
-  useEffect(() => {
-    try {
-      const cached = __p1LoadCache();
-      if (cached && cached.length) {
-        // @ts-ignore
-        setMessages(cached);
-      }
-    } catch (_) {}
 
-    __p1FetchRecent().then((list) => {
-      try {
-        if (list && list.length) {
-          // @ts-ignore
-          setMessages(list);
-          __p1SaveCache(list);
-        }
-      } catch (_) {}
-    });
-
-    const handler = () => {
-      __p1FetchRecent().then((list) => {
-        try {
-          if (list && list.length) {
-            // @ts-ignore
-            setMessages(list);
-            __p1SaveCache(list);
-          }
-        } catch (_) {}
-      });
-    };
-
-    window.addEventListener('core-ui-update', handler as any);
-    return () => window.removeEventListener('core-ui-update', handler as any);
-  }, [__p1ConvId]);
-
-  // 兜底：本地状态变化也落盘（避免 UI 端插入消息但 DB 还没写入的瞬间丢失）
-  useEffect(() => {
-    try {
-      // @ts-ignore
-      if (Array.isArray(messages)) __p1SaveCache(messages as any[]);
-    } catch (_) {}
-  }, [__p1ConvId, messages]);
 useEffect(() => {
     setCurrentSrc(src);
     setHasError(false);
