@@ -728,7 +728,7 @@ const normalizeVirtualUrl = (url: string) => {
     const __cacheKey = 'p1_chat_cache:' + __convId;
     let isMounted = true;
 
-    // 辅助：清洗并处理消息（严防毒消息）
+    // 辅助：清洗并处理消息（严防毒消息 + 修复时间戳）
     const processMsgText = (m: any) => {
       // 1. 基础校验
       if (!m || !m.id) return null;
@@ -739,11 +739,20 @@ const normalizeVirtualUrl = (url: string) => {
          if (!hasUrl && !hasMeta) return null; // 丢弃毒消息
       }
       
-      if (m.text) return m;
-      const txt = m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName||''}` : 
-                            m.kind === 'image' ? '[图片]' : 
-                            m.kind === 'voice' ? `[语音] ${m.meta?.fileName||''}` : '');
-      return { ...m, text: txt, timestamp: new Date(m.ts) };
+      // 3. 构造文本 (即使 m.text 存在也要往下走，为了重修 timestamp)
+      let txt = m.text;
+      if (!txt) {
+         txt = m.txt || (m.kind === 'SMART_FILE_UI' ? `[文件] ${m.meta?.fileName||''}` : 
+                         m.kind === 'image' ? '[图片]' : 
+                         m.kind === 'voice' ? `[语音] ${m.meta?.fileName||''}` : '');
+      }
+
+      // 4. 强制转为 Date 对象 (关键修复：防止 JSON 字符串导致 crash)
+      return { 
+        ...m, 
+        text: txt, 
+        timestamp: new Date(m.ts || m.timestamp || Date.now()) 
+      };
     };
 
     // 安全设置消息（防白屏核心）
