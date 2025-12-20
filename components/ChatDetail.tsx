@@ -651,6 +651,75 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   onVideoCall,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
+
+  // __P1_LOCAL_CHAT_CACHE_V2__: 退出/返回列表再进，仍能看到待上传图片的预览（避免 blob: 失效）
+  const __p1ChatCacheKey = useMemo(() => `p1_chat_cache_v2:${chat.id}`, [chat.id]);
+
+  const __p1LoadChatCache = (): any[] | null => {
+    try {
+      const raw = localStorage.getItem(__p1ChatCacheKey);
+      if (!raw) return null;
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return null;
+      return arr
+        .map((m: any) => {
+          const ts = (m && (m.ts ?? m.timestamp ?? m.time)) ?? Date.now();
+          return { ...m, timestamp: new Date(ts) };
+        })
+        .filter(Boolean);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const __p1SaveChatCache = (arr: any[]) => {
+    try {
+      if (!Array.isArray(arr)) return;
+      const cut = arr.slice(Math.max(0, arr.length - 300));
+      let pendingPreviewKept = 0;
+
+      const safe = cut.map((m: any) => {
+        const mm: any = m ? { ...m } : m;
+        if (!mm || typeof mm !== 'object') return mm;
+
+        const meta: any = mm.meta && typeof mm.meta === 'object' ? { ...mm.meta } : undefined;
+        if (meta && meta.fileObj) delete meta.fileObj; // File 无法 JSON 化
+
+        // 仅对待上传图片保留少量 previewDataUrl，避免 localStorage 爆掉
+        if (meta && meta.__pending && typeof meta.previewDataUrl === 'string') {
+          pendingPreviewKept += 1;
+          const tooMany = pendingPreviewKept > 8;
+          const tooBig = meta.previewDataUrl.length > 260000;
+          if (tooMany || tooBig) delete meta.previewDataUrl;
+        } else if (meta && meta.previewDataUrl) {
+          delete meta.previewDataUrl;
+        }
+
+        mm.meta = meta;
+        // 不缓存 Date 对象，统一靠 ts 恢复
+        if (mm.timestamp instanceof Date) mm.timestamp = (mm.ts ?? (mm.timestamp as Date).getTime());
+        return mm;
+      });
+
+      localStorage.setItem(__p1ChatCacheKey, JSON.stringify(safe));
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    try {
+      const cached = __p1LoadChatCache();
+      if (cached && cached.length) {
+        setMessages(cached as any);
+      }
+    } catch (_) {}
+  }, [__p1ChatCacheKey]);
+
+  useEffect(() => {
+    try {
+      __p1SaveChatCache(messages as any);
+    } catch (_) {}
+  }, [__p1ChatCacheKey, messages]);
+
   const [inputValue, setInputValue] = useState('');
   const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
@@ -774,10 +843,12 @@ const normalizeVirtualUrl = (url: string) => {
     const processMessages = (msgs: any[]) => {
       // 过滤破损媒体消息（没有 txt 且没有 meta.fileId 的 image/video）
       const filtered = msgs.filter((m) => {
+        const hasLocalMedia = !!(m.meta && (m.meta.fileObj || m.meta.previewDataUrl));
         const isBroken =
           (m.kind === 'image' || m.kind === 'video') &&
           !m.txt &&
-          !(m.meta && m.meta.fileId);
+          !(m.meta && m.meta.fileId) &&
+          !hasLocalMedia;
         return !isBroken;
       });
 
@@ -800,7 +871,18 @@ const normalizeVirtualUrl = (url: string) => {
 
     if (window.db) {
       window.db.getRecent(50, chat.id).then((msgs: any[]) => {
-        setMessages(processMessages(msgs));
+        const dbList = processMessages(msgs);
+        setMessages((prev) => {
+          const pending = Array.isArray(prev)
+            ? (prev as any[]).filter((m: any) => m && m.meta && m.meta.__pending)
+            : [];
+          const byId = new Map<string, any>();
+          for (const m of [...dbList, ...pending]) {
+            const id = m && m.id != null ? String(m.id) : `noid_${Math.random()}`;
+            if (!byId.has(id) || !(byId.get(id) as any).meta?.__pending) byId.set(id, m);
+          }
+          return Array.from(byId.values()).sort((a: any, b: any) => (a.ts || 0) - (b.ts || 0));
+        });
         setTimeout(scrollToBottom, 100);
       });
     }
@@ -837,14 +919,12 @@ const handler = (ev: any) => {
 
 
 
+    const hasLocalMedia = !!(raw.meta && ((raw.meta as any).fileObj || (raw.meta as any).previewDataUrl));
     const isBroken =
-
       (raw.kind === 'image' || raw.kind === 'video') &&
-
       !raw.txt &&
-
-      !(raw.meta && raw.meta.fileId);
-
+      !(raw.meta && raw.meta.fileId) &&
+      !hasLocalMedia;
     if (isBroken) return;
 
 
@@ -1075,7 +1155,7 @@ const handler = (ev: any) => {
     setIsPlusOpen(false);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -1083,12 +1163,86 @@ const handler = (ev: any) => {
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
 
+    const localId = `local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+    const makePreview = (f: File) =>
+      new Promise<string | null>((resolve) => {
+        try {
+          const reader = new FileReader();
+          reader.onerror = () => resolve(null);
+          reader.onload = () => {
+            try {
+              const dataUrl = String(reader.result || '');
+              if (!dataUrl.startsWith('data:')) return resolve(null);
+              const img = new Image();
+              img.onload = () => {
+                try {
+                  const max = 900;
+                  const w = img.width || 0;
+                  const h = img.height || 0;
+                  if (!w || !h) return resolve(dataUrl);
+                  const scale = Math.min(1, max / Math.max(w, h));
+                  const cw = Math.max(1, Math.round(w * scale));
+                  const ch = Math.max(1, Math.round(h * scale));
+                  const canvas = document.createElement('canvas');
+                  canvas.width = cw;
+                  canvas.height = ch;
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return resolve(dataUrl);
+                  ctx.drawImage(img, 0, 0, cw, ch);
+                  const out = canvas.toDataURL('image/jpeg', 0.82);
+                  resolve(out || dataUrl);
+                } catch (_) {
+                  resolve(dataUrl);
+                }
+              };
+              img.onerror = () => resolve(dataUrl);
+              img.src = dataUrl;
+            } catch (_) {
+              resolve(null);
+            }
+          };
+          reader.readAsDataURL(f);
+        } catch (_) {
+          resolve(null);
+        }
+      });
+
+    // 图片：先本地上屏（并可被 localStorage 缓存），避免退出/返回后 blob 失效
+    if (kind === 'image') {
+      const previewDataUrl = await makePreview(file);
+      const localMsg: any = {
+        id: localId,
+        kind: 'image',
+        senderId: currentUserId,
+        target: chat.id,
+        ts: Date.now(),
+        txt: previewDataUrl || '',
+        meta: {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          previewDataUrl: previewDataUrl || undefined,
+          __pending: true,
+          clientMsgId: localId,
+        },
+        text: '[图片]',
+        timestamp: new Date(),
+      };
+      setMessages((prev: any) => {
+        const arr = Array.isArray(prev) ? prev : [];
+        return [...arr, localMsg].sort((a: any, b: any) => (a.ts || 0) - (b.ts || 0));
+      });
+      setTimeout(scrollToBottom, 100);
+    }
+
     if (window.protocol) {
       window.protocol.sendMsg(null, kind, {
         fileObj: file,
         name: file.name,
         size: file.size,
         type: file.type,
+        clientMsgId: localId,
       });
     } else {
       onShowToast('核心未连接');
@@ -1151,6 +1305,7 @@ const handler = (ev: any) => {
 
   // 媒体 URL：对齐旧版 smartCore.play + 修正 /core/ 作用域
   const getMediaSrc = (msg: any) => {
+    if (msg.meta?.previewDataUrl) return msg.meta.previewDataUrl;
     if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
     if (msg.meta?.fileId && window.smartCore) {
       const u = window.smartCore.play(
