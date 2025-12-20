@@ -19,14 +19,32 @@ export class StreamManager {
     }
 
     let task = this.core.tasks.activeTasks.get(fileId);
+    
+    // 1. 尝试同步启动
     if (!task) {
       this.core.tasks.startDownloadTask(fileId);
       task = this.core.tasks.activeTasks.get(fileId);
     }
 
+    // 2. 异步恢复：若内存无Meta，尝试从DB加载
     if (!task) {
-      try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'Task Start Failed' }); } catch (_) {}
-      return;
+       if (this.core.db) {
+         this.core.db.getFile(fileId).then(meta => {
+            if (meta) {
+               // 恢复到内存
+               this.core.tasks.smartMetaCache.set(fileId, meta);
+               // 递归重试（此时应该能成功）
+               this.handleStreamOpen(data, source);
+            } else {
+               try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'File Not Found (No Meta in DB)' }); } catch (_) {}
+            }
+         }).catch(e => {
+            try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'DB Error: ' + e }); } catch (_) {}
+         });
+       } else {
+          try { source.postMessage({ type: 'STREAM_ERROR', requestId, msg: 'Task Start Failed (No DB)' }); } catch (_) {}
+       }
+       return; // 异步等待中，本次先返回
     }
 
     let start = 0;
