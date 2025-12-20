@@ -193,10 +193,10 @@ useEffect(() => {
           const withBust = base.includes('?') 
             ? `${base}&r=${Date.now()}` 
             : `${base}?r=${Date.now()}`;
-          console.log(`🔄 [ImageMessage] 重试第 ${nextRetry} 次:`, withBust);
+          console.log(`🔄 [ImageMessage] 自动重试第 ${nextRetry} 次:`, withBust);
           setCurrentSrc(withBust);
         } catch (_) {}
-      }, 800);
+      }, 1000); // 稍微延长重试间隔到 1s
     } else {
       setHasError(true);
       setIsLoading(false);
@@ -205,12 +205,21 @@ useEffect(() => {
 
   if (hasError) {
     return (
-      <div className="flex flex-col items-center justify-center p-2 bg-gray-50 rounded-[6px] border border-gray-200 min-w-[100px] min-h-[100px]">
-         <div className="text-2xl mb-1">❌</div>
-         <span className="text-[12px] text-red-500">
-           {src.startsWith('blob:') ? '本地图片失效' : '加载失败'}
-         </span>
-         <div className="text-[10px] text-gray-400 mt-1 max-w-[80px] truncate">{currentSrc}</div>
+      <div 
+        className="flex flex-col items-center justify-center p-2 bg-gray-50 rounded-[6px] border border-gray-200 min-w-[100px] min-h-[100px] cursor-pointer active:bg-gray-200 select-none"
+        onClick={(e) => {
+          e.stopPropagation();
+          // 手动重试
+          setHasError(false);
+          setIsLoading(true);
+          setRetryCount(0);
+          const base = src.split('#')[0];
+          setCurrentSrc(base.includes('?') ? `${base}&r=${Date.now()}` : `${base}?r=${Date.now()}`);
+        }}
+      >
+         <div className="text-2xl mb-1">↻</div>
+         <span className="text-[12px] text-gray-500">点击重试</span>
+         <div className="text-[10px] text-gray-300 mt-1 max-w-[80px] truncate">图片加载超时</div>
       </div>
     );
   }
