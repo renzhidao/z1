@@ -181,7 +181,8 @@ useEffect(() => {
     setRetryCount(0);
   }, [src]);
 
-  const handleError = () => {
+  const handleError = (e: any) => {
+    console.error('❌ [ImageMessage] 加载失败:', currentSrc);
     // 针对虚拟文件路径，最多自动重试 3 次
     if (currentSrc.includes('./virtual/file/') && retryCount < 3) {
       const nextRetry = retryCount + 1;
@@ -192,6 +193,7 @@ useEffect(() => {
           const withBust = base.includes('?') 
             ? `${base}&r=${Date.now()}` 
             : `${base}?r=${Date.now()}`;
+          console.log(`🔄 [ImageMessage] 重试第 ${nextRetry} 次:`, withBust);
           setCurrentSrc(withBust);
         } catch (_) {}
       }, 800);
@@ -208,6 +210,7 @@ useEffect(() => {
          <span className="text-[12px] text-red-500">
            {src.startsWith('blob:') ? '本地图片失效' : '加载失败'}
          </span>
+         <div className="text-[10px] text-gray-400 mt-1 max-w-[80px] truncate">{currentSrc}</div>
       </div>
     );
   }
@@ -224,8 +227,11 @@ useEffect(() => {
           e.stopPropagation();
           onPreview(src); // 预览原始链接
         }}
-        onLoad={() => setIsLoading(false)}
-        onError={handleError}
+        onLoad={() => {
+           console.log('✅ [ImageMessage] 加载成功:', currentSrc);
+           setIsLoading(false);
+        }}
+        onError={(e) => handleError(e)}
       />
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-[6px]">
