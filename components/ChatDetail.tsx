@@ -170,6 +170,57 @@ const ImageMessage: React.FC<{
   const [retryCount, setRetryCount] = useState(0);
   const [currentSrc, setCurrentSrc] = useState(src);
 
+  // --- [AI修复] 恢复历史记录，但增加防白屏过滤 ---
+  useEffect(() => {
+    // 封装安全设置函数：过滤 null/undefined，防止渲染崩溃
+    const safeSetMessages = (list: any) => {
+      try {
+        if (Array.isArray(list) && list.length > 0) {
+          // 关键：过滤掉无效项，防止白屏
+          const valid = list.filter((x: any) => x && typeof x === 'object' && x.id);
+          if (valid.length > 0) {
+            // @ts-ignore
+            setMessages(valid);
+            try { __p1SaveCache(valid); } catch (_) {}
+          }
+        }
+      } catch (err) {
+        console.warn("历史消息解析失败(已忽略，防止白屏):", err);
+      }
+    };
+
+    // 1. 先读缓存
+    try {
+      const cached = __p1LoadCache();
+      safeSetMessages(cached);
+    } catch (_) {}
+
+    // 2. 再读 DB
+    __p1FetchRecent().then((list) => {
+      safeSetMessages(list);
+    }).catch(() => {});
+
+    // 3. 监听外部刷新
+    const handler = () => {
+      __p1FetchRecent().then((list) => safeSetMessages(list));
+    };
+
+    window.addEventListener('core-ui-update', handler as any);
+    return () => window.removeEventListener('core-ui-update', handler as any);
+  }, [__p1ConvId]);
+
+  // 兜底：状态变化落盘（加固）
+  useEffect(() => {
+    try {
+      // @ts-ignore
+      if (Array.isArray(messages) && messages.length > 0) {
+         // @ts-ignore
+         __p1SaveCache(messages);
+      }
+    } catch (_) {}
+  }, [__p1ConvId, messages]);
+  // ---------------------------------------------
+
   
 
 useEffect(() => {
