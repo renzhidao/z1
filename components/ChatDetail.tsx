@@ -790,7 +790,13 @@ const normalizeVirtualUrl = (url: string) => {
       // 1. 媒体消息：URL补全与毒消息过滤
       if (m.kind === 'image' || m.kind === 'video') {
          let url = m.txt;
-         // 如果没 URL 但有 meta，尝试生成 virtual URL
+         
+         // 关键修复：如果 URL 是临时的 blob:（已失效），强制置空，以便下方重新生成
+         if (typeof url === 'string' && url.startsWith('blob:')) {
+            url = null;
+         }
+
+         // 如果没 URL (或被置空) 但有 meta，尝试生成 virtual URL
          if ((!url || typeof url !== 'string') && m.meta && m.meta.fileId) {
             // 简单模拟 getMediaSrc 的核心逻辑
             // 注意：这里暂时拿不到 window.smartCore 的实时状态，但构造 virtual path 是安全的
