@@ -170,9 +170,7 @@ const ImageMessage: React.FC<{
   const [retryCount, setRetryCount] = useState(0);
   const [currentSrc, setCurrentSrc] = useState(src);
 
-  
-
-useEffect(() => {
+  useEffect(() => {
     setCurrentSrc(src);
     setHasError(false);
     setIsLoading(true);
@@ -181,7 +179,7 @@ useEffect(() => {
 
   const handleError = () => {
     // 针对虚拟文件路径，最多自动重试 3 次
-    if (currentSrc.includes('./virtual/file/') && retryCount < 3) {
+    if (currentSrc.includes('virtual/file/') && retryCount < 3) {
       const nextRetry = retryCount + 1;
       setRetryCount(nextRetry);
       setTimeout(() => {
@@ -807,47 +805,95 @@ const normalizeVirtualUrl = (url: string) => {
       });
     }
 
-    const handler = (e: CustomEvent) => {
-      const { type, data } = e.detail;
-      if (type !== 'msg') return;
+const handler = (ev: any) => {
 
-      const raw = data;
-      const isPublic = chat.id === 'all' && raw.target === 'all';
-      const isRelated =
-        (raw.senderId === chat.id && raw.target === currentUserId) ||
-        (raw.senderId === currentUserId && raw.target === chat.id);
+  try {
 
-      if (isPublic || isRelated) {
-        // 实时消息同样过滤破损包
-        const isBroken =
-          (raw.kind === 'image' || raw.kind === 'video') &&
-          !raw.txt &&
-          !(raw.meta && raw.meta.fileId);
-        if (isBroken) return;
+    const detail = ev && (ev as any).detail;
 
-        const newMsg = {
-          ...raw,
-          text:
-            raw.txt ||
-            (raw.kind === 'SMART_FILE_UI'
-              ? `[文件] ${raw.meta?.fileName}`
-              : raw.kind === 'image'
-              ? '[图片]'
-              : raw.kind === 'voice'
-              ? `[语音] ${raw.meta?.fileName}`
-              : ''),
-          timestamp: new Date(raw.ts),
-        };
+    if (!detail || typeof detail !== 'object') return;
 
-        setMessages((prev) => {
-          if (prev.find((m) => m.id === newMsg.id)) return prev;
-          return [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts);
-        });
-        setTimeout(scrollToBottom, 100);
-      }
+    const type = (detail as any).type;
+
+    const data = (detail as any).data;
+
+    if (type !== 'msg' || !data) return;
+
+
+
+    const raw = data;
+
+    const isPublic = chat.id === 'all' && raw.target === 'all';
+
+    const isRelated =
+
+      (raw.senderId === chat.id && raw.target === currentUserId) ||
+
+      (raw.senderId === currentUserId && raw.target === chat.id);
+
+
+
+    if (!(isPublic || isRelated)) return;
+
+
+
+    const isBroken =
+
+      (raw.kind === 'image' || raw.kind === 'video') &&
+
+      !raw.txt &&
+
+      !(raw.meta && raw.meta.fileId);
+
+    if (isBroken) return;
+
+
+
+    const newMsg = {
+
+      ...raw,
+
+      text:
+
+        raw.txt ||
+
+        (raw.kind === 'SMART_FILE_UI'
+
+          ? `[文件] ${raw.meta?.fileName}`
+
+          : raw.kind === 'image'
+
+          ? '[图片]'
+
+          : raw.kind === 'voice'
+
+          ? `[语音] ${raw.meta?.fileName}`
+
+          : ''),
+
+      timestamp: new Date(raw.ts),
+
     };
 
-    window.addEventListener('core-ui-update', handler as EventListener);
+
+
+    setMessages((prev) => {
+
+      if (prev.find((m) => m.id === newMsg.id)) return prev;
+
+      return [...prev, newMsg].sort((a: any, b: any) => a.ts - b.ts);
+
+    });
+
+    setTimeout(scrollToBottom, 100);
+
+  } catch (err) {
+
+    try { console.error('core-ui-update handler error', err); } catch (_) {}
+
+  }
+
+};
     return () =>
       window.removeEventListener('core-ui-update', handler as EventListener);
   }, [chat.id, currentUserId]);
