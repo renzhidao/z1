@@ -394,6 +394,36 @@ const vUrl = `./virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
            }
       },
 
+ensureLocal: async (fileId, name) => {
+          try {
+              // 已在内存
+              if (window.virtualFiles && window.virtualFiles.has(fileId)) {
+                  try {
+                      window.__p1_blobUrlCache = window.__p1_blobUrlCache || new Map();
+                      const cached = window.__p1_blobUrlCache.get(fileId);
+                      if (cached) { try { window.dispatchEvent(new CustomEvent('p1-file-ready', { detail: { fileId } })); } catch(_) {} return cached; }
+                      const blob = window.virtualFiles.get(fileId);
+                      const url = URL.createObjectURL(blob);
+                      window.__p1_blobUrlCache.set(fileId, url);
+                      try { window.dispatchEvent(new CustomEvent('p1-file-ready', { detail: { fileId } })); } catch(_) {}
+                      return url;
+                  } catch(_) {}
+              }
+              // IndexedDB
+              if (window.db && typeof window.db.getFile === 'function') {
+                  const blob = await window.db.getFile(fileId);
+                  if (blob) {
+                      window.virtualFiles.set(fileId, blob);
+                      window.__p1_blobUrlCache = window.__p1_blobUrlCache || new Map();
+                      const url = URL.createObjectURL(blob);
+                      window.__p1_blobUrlCache.set(fileId, url);
+                      try { window.dispatchEvent(new CustomEvent('p1-file-ready', { detail: { fileId } })); } catch(_) {}
+                      return url;
+                  }
+              }
+          } catch(_) {}
+          return null;
+      },
       runDiag: () => {
           log(`Tasks: ${window.activeTasks.size}, SendQ: ${SEND_QUEUE.length}`);
       }

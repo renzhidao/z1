@@ -202,7 +202,7 @@ useEffect(() => {
 
   // iOS/无SW兜底：没有 SW 控制时，触发 smartCore 下载，等完成事件后切换成 blob URL
   if (isVirtual && !(navigator.serviceWorker && navigator.serviceWorker.controller) && vf && (window).smartCore) {
-    try { (window).smartCore.play(vf.fid, vf.fname); } catch (_) {}
+try { window.smartCore && window.smartCore.ensureLocal && window.smartCore.ensureLocal(vf.fid, vf.fname); } catch (_) {}
   }
 
   const onReady = (e) => {
@@ -841,25 +841,35 @@ const normalizeVirtualUrl = (url: string) => {
       if (!m || !m.id) return null;
 
       // 1. 媒体消息：URL补全与毒消息过滤
-      if (m.kind === 'image' || m.kind === 'video') {
-         let url = m.txt;
+if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
+   let url = m.txt;
+   let kind = m.kind;
 
-         // 策略变更：只要有 fileId，强制使用虚拟路径（放弃不稳定的 blob/本地路径）
-if (m.meta && m.meta.fileId) {
-   const fid = m.meta.fileId;
-   const fname = m.meta.fileName || 'file';
-   url = `./virtual/file/${fid}/${encodeURIComponent(fname)}`; 
-} 
-// 如果没有 fileId 但有 url（比如纯网络图），则保留原 url
+   // SMART_FILE_UI -> 具体媒体类型（图片/视频）
+   if (kind === 'SMART_FILE_UI' && m.meta) {
+     const fnameLower = String(m.meta.fileName || '').toLowerCase();
+     const ftypeLower = String(m.meta.fileType || '').toLowerCase();
+     const isImg = ftypeLower.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|heic|heif)$/.test(fnameLower);
+     const isVid = ftypeLower.startsWith('video/') || /\.(mp4|m4v|mov|webm)$/.test(fnameLower);
+     if (isImg) kind = 'image';
+     else if (isVid) kind = 'video';
+   }
 
-// 归一化到 /core/ 作用域（iOS 需由 SW 接管）
-url = normalizeVirtualUrl(url);
+   if (m.meta && m.meta.fileId) {
+      const fid = m.meta.fileId;
+      const fname = m.meta.fileName || 'file';
+      url = `./virtual/file/${fid}/${encodeURIComponent(fname)}`;
+   } 
 
-// 再次校验：如果 URL 无效，丢弃
-if (!url || typeof url !== 'string' || url.length === 0) return null;
+   // 归一化到 /core/ 作用域（iOS 需由 SW 接管）
+   url = normalizeVirtualUrl(url);
 
-m.txt = url;
-      }
+   // 再次校验：如果 URL 无效，丢弃
+   if (!url || typeof url !== 'string' || url.length === 0) return null;
+
+   m.txt = url;
+   m.kind = kind;
+}
 
       // 2. 构造展示文本 (text 字段)
       let txt = m.text;
