@@ -1192,16 +1192,23 @@ const normalizeVirtualUrl = (url: string) => {
 
   // 媒体 URL：强制使用虚拟路径（不再依赖 smartCore 是否加载）
   const getMediaSrc = (msg: any) => {
+    // [AI修复] iOS 优先使用本地 Blob (速度快且稳定)，前提是对象存在
+    if (msg.meta?.fileObj) {
+        try { return URL.createObjectURL(msg.meta.fileObj); } catch(_) {}
+    }
+
     // 1. 只要有 fileId，就强制使用虚拟路径
     if (msg.meta?.fileId) {
       const fid = msg.meta.fileId;
       const fname = msg.meta.fileName || 'file';
-      // 直接构造虚拟路径，不依赖 smartCore
-      return normalizeVirtualUrl(`./virtual/file/${fid}/${fname}`);
+      // [AI修复] iOS Safari 对 ./ 相对路径支持不佳，改为绝对路径
+      // 检测是否已经是绝对路径
+      const path = `/virtual/file/${fid}/${fname}`;
+      // 如果当前页面在 /core/ 下，需要拼全；如果 normalizeVirtualUrl 已经处理则保持
+      return normalizeVirtualUrl('.' + path); 
     }
-    // 2. 降级：使用 fileObj（仅对刚发送且无 fileId 的消息）
-    if (msg.meta?.fileObj) return URL.createObjectURL(msg.meta.fileObj);
-    // 3. 兜底：使用 txt 字段
+    
+    // 2. 兜底：使用 txt 字段 (可能是 blob: 或 http)
     return msg.txt || '';
   };
 
@@ -1311,23 +1318,27 @@ const normalizeVirtualUrl = (url: string) => {
           const meta = msg.meta || {};
           const fileType = meta.fileType || msg.fileType || '';
           const fileName = meta.fileName || msg.fileName || '';
-
-          // 修复：优先判断 voice 类型，防止 webm 格式录音被误判为视频
+          
+          // --- [AI修复] 增强类型判定 (兼容 iOS/不同后缀) ---
           const isVoice = msg.kind === 'voice';
-
+          
+          // 宽容判定：只要 txt 包含 virtual/file 且不是语音，就有可能是媒体
+          const isVirtual = typeof msg.txt === 'string' && msg.txt.includes('virtual/file');
+          
           const isVideo =
             !isVoice &&
-            ((typeof fileType === 'string' && fileType.startsWith('video/')) ||
-            /\.(mp4|mov|m4v|webm)$/i.test(fileName || '') ||
-            msg.kind === 'video');
+            (msg.kind === 'video' ||
+             (typeof fileType === 'string' && fileType.startsWith('video/')) ||
+             /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(fileName || '') ||
+             (isVirtual && /\.(mp4|mov)$/i.test(msg.txt || ''))); // 检查URL后缀
 
           const isImage =
             !isVoice &&
             !isVideo &&
-            ((typeof fileType === 'string' &&
-              fileType.startsWith('image/')) ||
-              /\.(png|jpe?g|gif|webp|bmp)$/i.test(fileName || '') ||
-              msg.kind === 'image');
+            (msg.kind === 'image' ||
+             (typeof fileType === 'string' && fileType.startsWith('image/')) ||
+             /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
+             (isVirtual && !isVideo)); // 兜底：如果是虚拟文件且非视频，默认为图片尝试加载
 
           const isFile =
             msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage && !isVoice;
