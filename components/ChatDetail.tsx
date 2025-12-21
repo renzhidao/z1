@@ -180,10 +180,48 @@ useEffect(() => {
   setRetryCount(0);
 
   let active = true;
-    
+
   // 延迟加载策略：如果是虚拟路径，稍微等一下 Core/SW 就绪
-  const isVirtual = src.includes('/virtual/file/');
+  const isVirtual = src.includes('virtual/file/');
   const delay = isVirtual ? 600 : 0;
+
+  // 解析虚拟URL中的 fileId/fileName
+  const parseVirtual = (u) => {
+    try {
+      const m = u.split('virtual/file/')[1];
+      if (!m) return null;
+      const parts = m.split('/');
+      const fid = parts[0];
+      const fname = decodeURIComponent(parts.slice(1).join('/') || 'file');
+      if (!fid) return null;
+      return { fid, fname };
+    } catch (_) { return null; }
+  };
+
+  const vf = isVirtual ? parseVirtual(src) : null;
+
+  // iOS/无SW兜底：没有 SW 控制时，触发 smartCore 下载，等完成事件后切换成 blob URL
+  if (isVirtual && !(navigator.serviceWorker && navigator.serviceWorker.controller) && vf && (window).smartCore) {
+    try { (window).smartCore.play(vf.fid, vf.fname); } catch (_) {}
+  }
+
+  const onReady = (e) => {
+    try {
+      if (!vf) return;
+      const readyId = e && e.detail && e.detail.fileId;
+      if (readyId && readyId === vf.fid) {
+        const u = (window).smartCore && (window).smartCore.play ? (window).smartCore.play(vf.fid, vf.fname) : null;
+        if (u && typeof u === 'string' && u.startsWith('blob:')) {
+          if (!active) return;
+          setCurrentSrc(u);
+          setHasError(false);
+          setIsLoading(false);
+        }
+      }
+    } catch (_) {}
+  };
+
+  try { window.addEventListener('p1-file-ready', onReady); } catch (_) {}
 
   const t1 = setTimeout(() => {
     if (active) setCurrentSrc(src);
@@ -202,13 +240,17 @@ useEffect(() => {
      });
   }, 5000 + delay);
 
-  return () => { active = false; clearTimeout(t1); clearTimeout(t2); };
+  return () => { 
+    active = false; 
+    try { window.removeEventListener('p1-file-ready', onReady); } catch (_) {}
+    clearTimeout(t1); clearTimeout(t2); 
+  };
   }, [src]);
 
   const handleError = (e: any) => {
     console.error('❌ [ImageMessage] 加载失败:', currentSrc);
     // 针对虚拟文件路径，最多自动重试 3 次
-    if (currentSrc.includes('./virtual/file/') && retryCount < 3) {
+if (currentSrc.includes('virtual/file/') && retryCount < 3) {
       const nextRetry = retryCount + 1;
       setRetryCount(nextRetry);
       setTimeout(() => {
@@ -803,17 +845,20 @@ const normalizeVirtualUrl = (url: string) => {
          let url = m.txt;
 
          // 策略变更：只要有 fileId，强制使用虚拟路径（放弃不稳定的 blob/本地路径）
-         if (m.meta && m.meta.fileId) {
-            const fid = m.meta.fileId;
-            const fname = m.meta.fileName || 'file';
-            url = `./virtual/file/${fid}/${fname}`; 
-         } 
-         // 如果没有 fileId 但有 url（比如纯网络图），则保留原 url
-         
-         // 再次校验：如果 URL 无效，丢弃
-         if (!url || typeof url !== 'string' || url.length === 0) return null;
-         
-         m.txt = url; 
+if (m.meta && m.meta.fileId) {
+   const fid = m.meta.fileId;
+   const fname = m.meta.fileName || 'file';
+   url = `./virtual/file/${fid}/${encodeURIComponent(fname)}`; 
+} 
+// 如果没有 fileId 但有 url（比如纯网络图），则保留原 url
+
+// 归一化到 /core/ 作用域（iOS 需由 SW 接管）
+url = normalizeVirtualUrl(url);
+
+// 再次校验：如果 URL 无效，丢弃
+if (!url || typeof url !== 'string' || url.length === 0) return null;
+
+m.txt = url;
       }
 
       // 2. 构造展示文本 (text 字段)

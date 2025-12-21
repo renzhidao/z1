@@ -48,9 +48,11 @@ function guessMime(fileName, declaredType) {
   if (n.endsWith('.gif')) return 'image/gif';
   if (n.endsWith('.webp')) return 'image/webp';
   if (n.endsWith('.svg')) return 'image/svg+xml';
+  if (n.endsWith('.heic') || n.endsWith('.heif')) return 'image/heic';
 
-  // video fallback
-  if (n.endsWith('.mp4')) return 'video/mp4';
+  // video
+  if (n.endsWith('.mp4') || n.endsWith('.m4v')) return 'video/mp4';
+  if (n.endsWith('.mov')) return 'video/quicktime';
 
   return 'application/octet-stream';
 }
@@ -274,17 +276,16 @@ async function handleVirtualStream(event) {
   const requestId = Math.random().toString(36).slice(2) + Date.now();
 
   // PATCH: 用 bytes stream，媒体/Fetch 管线兼容性更好
-  const stream = new ReadableStream({
-    type: 'bytes',
-    start(controller) {
-      streamControllers.set(requestId, controller);
-      try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
-    },
-    cancel() {
-      streamControllers.delete(requestId);
-      try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
-    }
-  });
+const stream = new ReadableStream({
+  start(controller) {
+    streamControllers.set(requestId, controller);
+    try { client.postMessage({ type: 'STREAM_OPEN', requestId, fileId, range: rangeHeader }); } catch (e) {}
+  },
+  cancel() {
+    streamControllers.delete(requestId);
+    try { client.postMessage({ type: 'STREAM_CANCEL', requestId }); } catch (e) {}
+  }
+});
 
   return new Promise(resolve => {
     const metaHandler = (e) => {
