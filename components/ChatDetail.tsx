@@ -1319,18 +1319,28 @@ const normalizeVirtualUrl = (url: string) => {
           const fileType = meta.fileType || msg.fileType || '';
           const fileName = meta.fileName || msg.fileName || '';
           
-          // --- [AI修复] 增强类型判定 (兼容 iOS/不同后缀) ---
+          // --- [AI修复 v3] 彻底检测 txt 和 text 两个字段 ---
           const isVoice = msg.kind === 'voice';
           
-          // 宽容判定：只要 txt 包含 virtual/file 且不是语音，就有可能是媒体
-          const isVirtual = typeof msg.txt === 'string' && msg.txt.includes('virtual/file');
+          // 同时获取两个字段
+          const msgTxt = (msg.txt || '').toString();
+          const msgText = (msg.text || '').toString();
+          const isVirtual = msgTxt.includes('virtual/file') || msgText.includes('virtual/file');
+          
+          // 辅助函数：检测任一字段是否像图片/视频
+          const chkImg = (s: string) => /\.(png|jpe?g|gif|webp|bmp|heic)($|\?|#|\/)/i.test(s);
+          const chkVid = (s: string) => /\.(mp4|mov|m4v|webm|avi|mkv)($|\?|#|\/)/i.test(s);
+          
+          // 任一字段匹配即可
+          const urlIsImage = chkImg(msgTxt) || chkImg(msgText);
+          const urlIsVideo = chkVid(msgTxt) || chkVid(msgText);
           
           const isVideo =
             !isVoice &&
             (msg.kind === 'video' ||
              (typeof fileType === 'string' && fileType.startsWith('video/')) ||
              /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(fileName || '') ||
-             (isVirtual && /\.(mp4|mov)$/i.test(msg.txt || ''))); // 检查URL后缀
+             urlIsVideo);
 
           const isImage =
             !isVoice &&
@@ -1338,7 +1348,8 @@ const normalizeVirtualUrl = (url: string) => {
             (msg.kind === 'image' ||
              (typeof fileType === 'string' && fileType.startsWith('image/')) ||
              /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
-             (isVirtual && !isVideo)); // 兜底：如果是虚拟文件且非视频，默认为图片尝试加载
+             urlIsImage ||
+             (isVirtual && !isVideo)); // 兜底
 
           const isFile =
             msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage && !isVoice;
