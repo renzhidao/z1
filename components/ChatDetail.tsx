@@ -1729,9 +1729,11 @@ const handleSendText = async () => {
         <div ref={messagesEndRef} />
 
         {msgContextMenu.visible && (() => {
-                  // --- 动态计算菜单位置 (气泡基准) ---
+                  // --- 动态计算菜单位置 (气泡基准 v2 修复版) ---
                   const MENU_WIDTH = 300;
-                  const MENU_HEIGHT = 60; // 预估高度
+                  // 关键修复：菜单实际高度约为 170px (两行图标 + padding)
+                  // 如果估算太小，菜单就会“坐”在气泡上，遮挡内容
+                  const MENU_ACTUAL_HEIGHT = 170; 
                   const SCREEN_W = window.innerWidth;
           
                   // 从 state 中获取气泡几何信息
@@ -1745,14 +1747,14 @@ const handleSendText = async () => {
                   if (menuLeft < 10) menuLeft = 10;
                   if (menuLeft + MENU_WIDTH > SCREEN_W - 10) menuLeft = SCREEN_W - MENU_WIDTH - 10;
           
-                  // 2. 垂直位置：气泡上方 10px
-                  // 菜单本身高度约 70px (padding + icon + text)
-                  // 如果气泡顶部距离屏幕顶部 < 80px，则放气泡下方
-                  let menuTop = bubbleTop - 80; 
+                  // 2. 垂直位置逻辑：
+                  // 默认显示在气泡上方：气泡顶部 - 菜单高度 - 10px 间距
+                  let menuTop = bubbleTop - MENU_ACTUAL_HEIGHT - 10; 
                   let isUpsideDown = false;
           
-                  if (bubbleTop < 80) {
-                      // 放下方：Top + Height + 10px margin
+                  // 触顶检测：如果上方空间不足 (比如小于 180px)，则翻转到气泡下方
+                  if (bubbleTop < MENU_ACTUAL_HEIGHT + 20) {
+                      // 放下方：气泡顶部 + 气泡高度 + 10px 间距
                       menuTop = bubbleTop + bubbleHeight + 10;
                       isUpsideDown = true;
                   }
@@ -1791,7 +1793,7 @@ const handleSendText = async () => {
                               <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
                             </div>
                     
-                            {/* 动态尖角: 指向气泡中心 */}
+                            {/* 动态尖角: 始终对准气泡中心 */}
                             <div 
                                 className="absolute w-3 h-3 bg-[#4C4C4C] rotate-45"
                                 style={{
