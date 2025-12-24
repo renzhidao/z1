@@ -496,14 +496,4 @@ const QrCodeIcon = ({size, className}: {size: number, className: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
 );
 
-// --- New Me Page Components ---
 
-const MeItem: React.FC<{ icon: React.ReactNode, label: string, onClick?: () => void }> = ({ icon, label, onClick }) => (
-  <div onClick={onClick} className="flex items-center px-4 py-3 border-b border-gray-100 last:border-0 active:bg-[#DEDEDE] cursor-pointer">
-     <div className="mr-3">{icon}</div>
-     <div className="flex-1 flex items-center justify-between">
-        <span className="text-[17px] text-[#191919]">{label}</span>
-        <ChevronRight size={16} className="text-gray-300" />
-     </div>
-  </div>
-);
