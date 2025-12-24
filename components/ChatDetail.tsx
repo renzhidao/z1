@@ -1478,7 +1478,7 @@ const handleSendText = async () => {
             x: rect.left + rect.width / 2, 
             y: menuY,
             // @ts-ignore
-            height: isLongText ? 0 : rect.height, // 长文本时不需要翻转逻辑
+            height: isLongText ? (lineRect?.height || 24) : rect.height, // 长文本时用行高，反转时精准到那行底部
             // @ts-ignore 标记是否为长文本模式
             isLongText: isLongText,
             message: msg,
