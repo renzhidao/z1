@@ -732,8 +732,21 @@ const AudioMessage: React.FC<{
   src: string;
   fileName: string;
   isMe: boolean;
-}> = ({ src, fileName, isMe }) => {
+  fileId?: string;
+}> = ({ src, fileName, isMe, fileId }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (fileId && (window as any).smartCore) {
+      (window as any).smartCore.download(fileId, fileName);
+    } else {
+      const a = document.createElement('a');
+      a.href = src;
+      a.download = fileName;
+      a.click();
+    }
+  };
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -803,7 +816,12 @@ const AudioMessage: React.FC<{
         </button>
         {/* 进度条和信息 */}
         <div className="flex-1 min-w-0">
-          <div className="text-[13px] text-[#191919] truncate mb-1.5">{fileName || '音频文件'}</div>
+<div className="flex justify-between items-center mb-1.5">
+            <div className="text-[13px] text-[#191919] truncate max-w-[120px]">{fileName || '音频文件'}</div>
+            <button onClick={handleDownload} className="p-1 hover:bg-black/5 rounded-full text-gray-400 active:text-gray-600">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+          </div>
           <div
             className="h-1 bg-black/10 rounded-full cursor-pointer relative"
             onClick={handleSeek}
@@ -1419,7 +1437,6 @@ const handleSendText = async () => {
     // 只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META（对齐旧前端）
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
-    else if (file.type.startsWith('video/')) kind = 'video';
     if (window.protocol) {
       window.protocol.sendMsg(null, kind, {
         fileObj: file,
@@ -1707,12 +1724,22 @@ const handleSendText = async () => {
           const isAudio =
             !isVoice &&
             !isVideo &&
-            !isImage &&
             (msg.kind === 'audio' ||
              (typeof fileType === 'string' && fileType.startsWith('audio/')) ||
              /\.(mp3|m4a|wav|flac|aac|ogg|wma)$/i.test(fileName || ''));
+
+          const isImage =
+            !isVoice &&
+            !isVideo &&
+            !isAudio &&
+            (msg.kind === 'image' ||
+             (typeof fileType === 'string' && fileType.startsWith('image/')) ||
+             /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
+             urlIsImage ||
+             (isVirtual && msg.kind !== 'file' && msg.kind !== 'SMART_FILE_UI')); // 恢复兜底，但排除明确的文件类型
+
           const isFile =
-            (msg.kind === 'SMART_FILE_UI' || msg.kind === 'file') && !isVideo && !isImage && !isVoice && !isAudio;
+            !isVideo && !isImage && !isVoice && !isAudio;
 
 
 
@@ -1767,10 +1794,11 @@ const handleSendText = async () => {
                        posterUrl={meta?.poster}
                     />
 ) : isAudio ? (
-                    <AudioMessage
+<AudioMessage
                       src={getMediaSrc(msg)}
                       fileName={fileName || 'Audio'}
                       isMe={isMe}
+                      fileId={meta?.fileId}
                     />
                   ) : isFile ? (
                     <div
