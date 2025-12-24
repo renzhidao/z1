@@ -14,7 +14,7 @@ export function useCoreBridge() {
     setCurrentUser({
         id: window.state.myId,
         name: window.state.myName,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${window.state.myId}`,
+https://picsum.photos/seed/${window.state.myId}/200/200
         wechatId: window.state.myId,
         region: window.state.isHub ? 'Hub Node' : 'Client Node'
     });
@@ -46,7 +46,7 @@ export function useCoreBridge() {
         user: { 
             id: c.id, 
             name: c.n || c.id.slice(0, 6), 
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.id}` 
+https://picsum.photos/seed/${c.id}/200/200
         },
         lastMessage: isOnline ? '[在线]' : '[离线]',
         timestamp: isOnline ? '刚刚' : '',

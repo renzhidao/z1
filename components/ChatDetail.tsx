@@ -1723,7 +1723,7 @@ const handleSendText = async () => {
                 <img
                   src={
                     isMe
-                      ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUserId}`
+https://picsum.photos/seed/${currentUserId}/200/200
                       : chat.user.avatar
                   }
                   className="w-10 h-10 rounded-[6px] shadow-sm object-cover bg-gray-200 cursor-pointer flex-shrink-0"

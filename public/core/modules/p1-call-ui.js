@@ -26,7 +26,7 @@ export function init() {
   let avatarImg = null;
 
   function diceAvatar(seed) {
-    try { return 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(seed || 'user'); } catch (_) { return ''; }
+'https://picsum.photos/seed/' + encodeURIComponent(seed || 'user') + '/200/200'
   }
 
   function getName(pid) {
