@@ -1714,13 +1714,6 @@ const handleSendText = async () => {
              /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(fileName || '') ||
              urlIsVideo);
 
-          const isImage =
-            !isVoice &&
-            !isVideo &&
-            (msg.kind === 'image' ||
-             (typeof fileType === 'string' && fileType.startsWith('image/')) ||
-             /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
-             urlIsImage);
           const isAudio =
             !isVoice &&
             !isVideo &&
