@@ -168,132 +168,94 @@ const ImageMessage: React.FC<{
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
-const [currentSrc, setCurrentSrc] = useState(src);
+  // 【修复】直接赋值 src，不留空
+  const [currentSrc, setCurrentSrc] = useState(src);
 
+  useEffect(() => {
+    setHasError(false);
+    setIsLoading(true);
+    setRetryCount(0);
+    
+    let active = true;
+    const isVirtual = src.includes('virtual/file/');
+    const delay = isVirtual ? 600 : 0;
 
+    // 尝试读取本地缓存（秒开优化）
+    const parseVirtual = (u) => {
+        try {
+            const m = u.split('virtual/file/')[1];
+            if (!m) return null;
+            const parts = m.split('/');
+            return { fid: parts[0], fname: decodeURIComponent(parts.slice(1).join('/') || 'file') };
+        } catch (_) { return null; }
+    };
+    const vf = isVirtual ? parseVirtual(src) : null;
 
-  
-
-useEffect(() => {
-  setHasError(false);
-  setIsLoading(true);
-  setRetryCount(0);
-
-  let active = true;
-
-  // 延迟加载策略：如果是虚拟路径，稍微等一下 Core/SW 就绪
-  const isVirtual = src.includes('virtual/file/');
-  const delay = isVirtual ? 600 : 0;
-
-  // 解析虚拟URL中的 fileId/fileName
-  const parseVirtual = (u) => {
-    try {
-      const m = u.split('virtual/file/')[1];
-      if (!m) return null;
-      const parts = m.split('/');
-      const fid = parts[0];
-      const fname = decodeURIComponent(parts.slice(1).join('/') || 'file');
-      if (!fid) return null;
-      return { fid, fname };
-    } catch (_) { return null; }
-  };
-
-const vf = isVirtual ? parseVirtual(src) : null;
-
-// 优先使用已缓存 blob（无需等待 SW/网络）
-try {
-  if (vf && (window).__p1_blobUrlCache && (window).__p1_blobUrlCache.has && (window).__p1_blobUrlCache.has(vf.fid)) {
-    const u = (window).__p1_blobUrlCache.get(vf.fid);
-    if (u && typeof u === 'string' && u.startsWith('blob:')) {
-      setCurrentSrc(u);
-      setHasError(false);
-      setIsLoading(false);
-    }
-  }
-} catch (_) {}
-
-
-  // 进入即尝试本地命中（IndexedDB/内存）→ 直接切 blob，避免首帧走 SW 超时
-  if (isVirtual && vf && (window).smartCore && (window).smartCore.ensureLocal) {
-    try {
-      const maybe = (window).smartCore.ensureLocal(vf.fid, vf.fname);
-      if (maybe && typeof maybe.then === 'function') {
-        maybe.then((u) => {
-          try {
-            if (!active) return;
-            if (u && typeof u === 'string' && u.startsWith('blob:')) {
-              setCurrentSrc(u);
-              setHasError(false);
-              setIsLoading(false);
-            }
-          } catch (_) {}
-        }).catch(() => {});
-      }
-    } catch (_) {}
-  }
-
-  const onReady = (e) => {
-    try {
-      if (!vf) return;
-      const readyId = e && e.detail && e.detail.fileId;
-      if (readyId && readyId === vf.fid) {
-        const u = (window).smartCore && (window).smartCore.play ? (window).smartCore.play(vf.fid, vf.fname) : null;
-        if (u && typeof u === 'string' && u.startsWith('blob:')) {
-          if (!active) return;
-          setCurrentSrc(u);
-          setHasError(false);
-          setIsLoading(false);
+    if (vf && (window).__p1_blobUrlCache?.has?.(vf.fid)) {
+        const u = (window).__p1_blobUrlCache.get(vf.fid);
+        if (u && u.startsWith('blob:')) {
+            setCurrentSrc(u);
+            setIsLoading(false);
+            return;
         }
-      }
-    } catch (_) {}
-  };
+    }
 
-  try { window.addEventListener('p1-file-ready', onReady); } catch (_) {}
+    // 预热逻辑（保留优化，但不阻断流程）
+    if (isVirtual && vf && (window).smartCore?.ensureLocal) {
+        try {
+            (window).smartCore.ensureLocal(vf.fid, vf.fname).then(u => {
+                if (active && u && u.startsWith('blob:')) {
+                    setCurrentSrc(u);
+                    setIsLoading(false);
+                }
+            }).catch(() => {});
+        } catch (_) {}
+    }
 
-const t1 = setTimeout(() => {
-    if (active) setCurrentSrc(src);
-  }, delay);
+    const onReady = (e) => {
+        try {
+            if (e?.detail?.fileId === vf?.fid && active) {
+               const u = (window).smartCore?.play(vf.fid, vf.fname);
+               if (u && u.startsWith('blob:')) {
+                   setCurrentSrc(u);
+                   setIsLoading(false);
+               }
+            }
+        } catch (_) {}
+    };
+    try { window.addEventListener('p1-file-ready', onReady); } catch (_) {}
 
-  // 超时看门狗 (延后启动)
-  const t2 = setTimeout(() => {
-     if (!active) return;
-     setIsLoading((loading) => {
-       if (loading) {
-         console.warn('⚠️ [ImageMessage] 超时强制打断:', src);
-         setHasError(true); 
-         return false;
-       }
-       return loading;
-     });
-  }, 5000 + delay);
+    // 【修复】核心定时器：无条件刷新 src
+    const t1 = setTimeout(() => {
+        if (active) setCurrentSrc(src);
+    }, delay);
 
-  return () => { 
-    active = false; 
-    try { window.removeEventListener('p1-file-ready', onReady); } catch (_) {}
-    clearTimeout(t1); clearTimeout(t2); 
-  };
+    // 【修复】超时看门狗：强制停止 Loading
+    const t2 = setTimeout(() => {
+        if (active) setIsLoading(false);
+    }, 5000 + delay);
+
+    return () => { 
+        active = false; 
+        try { window.removeEventListener('p1-file-ready', onReady); } catch (_) {}
+        clearTimeout(t1); clearTimeout(t2); 
+    };
   }, [src]);
 
   const handleError = (e: any) => {
-    console.error('❌ [ImageMessage] 加载失败:', currentSrc);
-    // 针对虚拟文件路径，最多自动重试 3 次
-if (retryCount < 2) {
-      const nextRetry = retryCount + 1;
-      setRetryCount(nextRetry);
-      setTimeout(() => {
-        try {
-          const base = src.split('#')[0];
-          // 加上时间戳防缓存
-          const withBust = base.includes('?') 
-            ? `${base}&r=${Date.now()}` 
-            : `${base}?r=${Date.now()}`;
-          console.log(`🔄 [ImageMessage] 自动重试第 ${nextRetry} 次:`, withBust);
-          setCurrentSrc(withBust);
-        } catch (_) {}
-      }, 500); 
+    console.error('ImageErr:', currentSrc);
+    // 【修复】简单重试逻辑
+    if (retryCount < 2) {
+        setRetryCount(c => c + 1);
+        setTimeout(() => {
+            try {
+                const base = src.split('#')[0];
+                setCurrentSrc(base.includes('?') ? `${base}&r=${Date.now()}` : `${base}?r=${Date.now()}`);
+            } catch (_) {}
+        }, 500);
     } else {
-      setHasError(true);
-      setIsLoading(false);
+        setHasError(true);
+        setIsLoading(false);
     }
   };
 
