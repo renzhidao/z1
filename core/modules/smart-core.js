@@ -327,8 +327,9 @@ window.remoteFiles.get(meta.fileId).add(pkt.senderId);
 
           // 默认路径：SW 虚拟直链 (支持图片/音频/有SW的视频)
           // 即使 SW 暂时没 Ready，返回这个 URL 也能让 img 标签发起重试
-          log(`🎥 播放路径 = SW直链 | ${fileName}`);
-          const vUrl = `./virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
+if (!hasSW && !isVideo) { try { startDownloadTask(fileId); } catch (e) {} }
+log(`🎥 播放路径 = SW直链 | ${fileName}`);
+const vUrl = `./virtual/file/${fileId}/${encodeURIComponent(fileName)}`;
           
           // 如果是视频，尝试绑定日志
           if (isVideo) {
@@ -393,6 +394,36 @@ window.remoteFiles.get(meta.fileId).add(pkt.senderId);
            }
       },
 
+ensureLocal: async (fileId, name) => {
+          try {
+              // 已在内存
+              if (window.virtualFiles && window.virtualFiles.has(fileId)) {
+                  try {
+                      window.__p1_blobUrlCache = window.__p1_blobUrlCache || new Map();
+                      const cached = window.__p1_blobUrlCache.get(fileId);
+                      if (cached) { try { window.dispatchEvent(new CustomEvent('p1-file-ready', { detail: { fileId } })); } catch(_) {} return cached; }
+                      const blob = window.virtualFiles.get(fileId);
+                      const url = URL.createObjectURL(blob);
+                      window.__p1_blobUrlCache.set(fileId, url);
+                      try { window.dispatchEvent(new CustomEvent('p1-file-ready', { detail: { fileId } })); } catch(_) {}
+                      return url;
+                  } catch(_) {}
+              }
+              // IndexedDB
+              if (window.db && typeof window.db.getFile === 'function') {
+                  const blob = await window.db.getFile(fileId);
+                  if (blob) {
+                      window.virtualFiles.set(fileId, blob);
+                      window.__p1_blobUrlCache = window.__p1_blobUrlCache || new Map();
+                      const url = URL.createObjectURL(blob);
+                      window.__p1_blobUrlCache.set(fileId, url);
+                      try { window.dispatchEvent(new CustomEvent('p1-file-ready', { detail: { fileId } })); } catch(_) {}
+                      return url;
+                  }
+              }
+          } catch(_) {}
+          return null;
+      },
       runDiag: () => {
           log(`Tasks: ${window.activeTasks.size}, SendQ: ${SEND_QUEUE.length}`);
       }
@@ -1009,7 +1040,8 @@ function handleBinaryData(buffer, fromId) {
                 // 合成 Blob
                 const blob = new Blob(chunks, { type: task.fileType || 'application/octet-stream' });
 
-                window.virtualFiles.set(task.fileId, blob);
+window.virtualFiles.set(task.fileId, blob);
+try { window.dispatchEvent(new CustomEvent('p1-file-ready', { detail: { fileId: task.fileId } })); } catch (_) {}
 
 
 
