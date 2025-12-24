@@ -727,125 +727,8 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
 };
 
-// --- 辅助组件：音频消息播放器 ---
-const AudioMessage: React.FC<{
-  src: string;
-  fileName: string;
-  isMe: boolean;
-  fileId?: string;
-}> = ({ src, fileName, isMe, fileId }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  
-  const handleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (fileId && (window as any).smartCore) {
-      (window as any).smartCore.download(fileId, fileName);
-    } else {
-      const a = document.createElement('a');
-      a.href = src;
-      a.download = fileName;
-      a.click();
-    }
-  };
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
-
-  const togglePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch(() => {});
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if (!audioRef.current || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const pct = Math.max(0, Math.min(1, x / rect.width));
-    audioRef.current.currentTime = pct * duration;
-    setProgress(pct * 100);
-  };
-
-  useEffect(() => {
-    const audio = new Audio(src);
-    audioRef.current = audio;
-    audio.onloadedmetadata = () => setDuration(audio.duration || 0);
-    audio.ontimeupdate = () => {
-      setCurrentTime(audio.currentTime);
-      if (audio.duration) setProgress((audio.currentTime / audio.duration) * 100);
-    };
-    audio.onended = () => { setIsPlaying(false); setProgress(0); setCurrentTime(0); };
-    audio.onerror = () => console.error('Audio load error:', src);
-    return () => { audio.pause(); audio.src = ''; };
-  }, [src]);
-
-  const bgColor = isMe ? '#95EC69' : '#FFFFFF';
-
-  return (
-    <div
-      className="rounded-[6px] p-3 shadow-sm min-w-[200px] max-w-[280px] select-none"
-      style={{ backgroundColor: bgColor }}
-    >
-      <div className="flex items-center gap-3">
-        {/* 播放按钮 */}
-        <button
-          onClick={togglePlay}
-          className="w-10 h-10 rounded-full bg-[#07C160] flex items-center justify-center flex-shrink-0 active:opacity-80"
-        >
-          {isPlaying ? (
-            <div className="flex gap-1">
-              <div className="w-1 h-4 bg-white rounded-sm" />
-              <div className="w-1 h-4 bg-white rounded-sm" />
-            </div>
-          ) : (
-            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-l-[10px] border-l-white ml-1" />
-          )}
-        </button>
-        {/* 进度条和信息 */}
-        <div className="flex-1 min-w-0">
-<div className="flex justify-between items-center mb-1.5">
-            <div className="text-[13px] text-[#191919] truncate max-w-[120px]">{fileName || '音频文件'}</div>
-            <button onClick={handleDownload} className="p-1 hover:bg-black/5 rounded-full text-gray-400 active:text-gray-600">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </button>
-          </div>
-          <div
-            className="h-1 bg-black/10 rounded-full cursor-pointer relative"
-            onClick={handleSeek}
-          >
-            <div
-              className="h-full bg-[#07C160] rounded-full transition-all"
-              style={{ width: `${progress}%` }}
-            />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-[#07C160] rounded-full shadow-sm"
-              style={{ left: `calc(${progress}% - 6px)` }}
-            />
-          </div>
-          <div className="flex justify-between text-[11px] text-gray-500 mt-1">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // --- 辅助组件：长按菜单项 ---
+
 const ContextMenuItem: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -1437,6 +1320,7 @@ const handleSendText = async () => {
     // 只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META（对齐旧前端）
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
+
     if (window.protocol) {
       window.protocol.sendMsg(null, kind, {
         fileObj: file,
@@ -1714,25 +1598,17 @@ const handleSendText = async () => {
              /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(fileName || '') ||
              urlIsVideo);
 
-          const isAudio =
-            !isVoice &&
-            !isVideo &&
-            (msg.kind === 'audio' ||
-             (typeof fileType === 'string' && fileType.startsWith('audio/')) ||
-             /\.(mp3|m4a|wav|flac|aac|ogg|wma)$/i.test(fileName || ''));
-
           const isImage =
             !isVoice &&
             !isVideo &&
-            !isAudio &&
             (msg.kind === 'image' ||
              (typeof fileType === 'string' && fileType.startsWith('image/')) ||
              /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
              urlIsImage ||
-             (isVirtual && msg.kind !== 'file' && msg.kind !== 'SMART_FILE_UI')); // 恢复兜底，但排除明确的文件类型
+             (isVirtual && !isVideo)); // 兜底
 
           const isFile =
-            !isVideo && !isImage && !isVoice && !isAudio;
+            msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage && !isVoice;
 
 
 
@@ -1785,13 +1661,6 @@ const handleSendText = async () => {
                       fileName={fileName || 'Video'}
                       isMe={isMe}
                        posterUrl={meta?.poster}
-                    />
-) : isAudio ? (
-<AudioMessage
-                      src={getMediaSrc(msg)}
-                      fileName={fileName || 'Audio'}
-                      isMe={isMe}
-                      fileId={meta?.fileId}
                     />
                   ) : isFile ? (
                     <div
