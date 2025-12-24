@@ -95,8 +95,8 @@ const ChatItem: React.FC<ChatItemProps> = ({ chat, onClick, onLongPress }) => {
       {/* Content Container */}
       <div className="flex-1 min-w-0 border-b border-gray-100 py-1.5 group-last:border-0 h-full flex flex-col justify-center">
         <div className="flex justify-between items-center mb-0.5">
-          <h3 className="text-[16px] font-normal text-[#191919] truncate pr-2">
-            {chat.user.name}
+<h3 className="text-[16px] font-normal text-[#191919] truncate pr-2">
+            {chat.user.name.includes('公共频道') ? '公共频道' : chat.user.name}
           </h3>
           <span className="text-[11px] text-gray-400 font-normal whitespace-nowrap">
             {chat.timestamp}
@@ -104,8 +104,8 @@ const ChatItem: React.FC<ChatItemProps> = ({ chat, onClick, onLongPress }) => {
         </div>
         
         <div className="flex justify-between items-center">
-          <p className="text-[13px] text-gray-500 truncate pr-4 leading-normal">
-            {chat.lastMessage}
+<p className="text-[13px] text-gray-500 truncate pr-4 leading-normal">
+            {chat.lastMessage.replace(/^公共广播:\s*/, '')}
           </p>
           {chat.isMuted && (
             <BellOff size={14} className="text-gray-300 flex-shrink-0" />
