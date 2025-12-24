@@ -168,7 +168,7 @@ const ImageMessage: React.FC<{
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
-  const [currentSrc, setCurrentSrc] = useState(src);
+const [currentSrc, setCurrentSrc] = useState(() => (src.includes('virtual/file/') ? '' : src));
 
 
 
@@ -198,11 +198,38 @@ useEffect(() => {
     } catch (_) { return null; }
   };
 
-  const vf = isVirtual ? parseVirtual(src) : null;
+const vf = isVirtual ? parseVirtual(src) : null;
 
-  // iOS/无SW兜底：没有 SW 控制时，触发 smartCore 下载，等完成事件后切换成 blob URL
-  if (isVirtual && !(navigator.serviceWorker && navigator.serviceWorker.controller) && vf && (window).smartCore) {
-try { window.smartCore && window.smartCore.ensureLocal && window.smartCore.ensureLocal(vf.fid, vf.fname); } catch (_) {}
+// 优先使用已缓存 blob（无需等待 SW/网络）
+try {
+  if (vf && (window).__p1_blobUrlCache && (window).__p1_blobUrlCache.has && (window).__p1_blobUrlCache.has(vf.fid)) {
+    const u = (window).__p1_blobUrlCache.get(vf.fid);
+    if (u && typeof u === 'string' && u.startsWith('blob:')) {
+      setCurrentSrc(u);
+      setHasError(false);
+      setIsLoading(false);
+    }
+  }
+} catch (_) {}
+
+
+  // 进入即尝试本地命中（IndexedDB/内存）→ 直接切 blob，避免首帧走 SW 超时
+  if (isVirtual && vf && (window).smartCore && (window).smartCore.ensureLocal) {
+    try {
+      const maybe = (window).smartCore.ensureLocal(vf.fid, vf.fname);
+      if (maybe && typeof maybe.then === 'function') {
+        maybe.then((u) => {
+          try {
+            if (!active) return;
+            if (u && typeof u === 'string' && u.startsWith('blob:')) {
+              setCurrentSrc(u);
+              setHasError(false);
+              setIsLoading(false);
+            }
+          } catch (_) {}
+        }).catch(() => {});
+      }
+    } catch (_) {}
   }
 
   const onReady = (e) => {
@@ -223,22 +250,31 @@ try { window.smartCore && window.smartCore.ensureLocal && window.smartCore.ensur
 
   try { window.addEventListener('p1-file-ready', onReady); } catch (_) {}
 
-  const t1 = setTimeout(() => {
-    if (active) setCurrentSrc(src);
-  }, delay);
+const t1 = setTimeout(() => {
+  if (!active) return;
+  // 仅当非虚拟，或已由 SW 控制时，才切到虚拟直链；否则继续等待 blob
+  if (!isVirtual || (navigator.serviceWorker && navigator.serviceWorker.controller)) {
+    setCurrentSrc(src);
+  }
+}, delay);
 
-  // 超时看门狗 (延后启动)
-  const t2 = setTimeout(() => {
-     if (!active) return;
-     setIsLoading((loading) => {
-       if (loading) {
-         console.warn('⚠️ [ImageMessage] 超时强制打断:', src);
-         setHasError(true); 
+// 超时看门狗 (延后启动) —— 虚拟直链不立刻置错，继续等待 blob 事件
+const t2 = setTimeout(() => {
+   if (!active) return;
+   setIsLoading((loading) => {
+     if (loading) {
+       console.warn('⚠️ [ImageMessage] 加载超时:', src);
+       if (isVirtual) {
+         // 对于虚拟资源，维持 loading，等待 p1-file-ready/ensureLocal 返回
+         return loading;
+       } else {
+         setHasError(true);
          return false;
        }
-       return loading;
-     });
-  }, 5000 + delay);
+     }
+     return loading;
+   });
+}, 9000 + delay);
 
   return () => { 
     active = false; 
@@ -263,10 +299,20 @@ if (currentSrc.includes('virtual/file/') && retryCount < 3) {
           setCurrentSrc(withBust);
         } catch (_) {}
       }, 1000); // 稍微延长重试间隔到 1s
-    } else {
-      setHasError(true);
-      setIsLoading(false);
-    }
+} else {
+  if (String(currentSrc || '').includes('virtual/file/')) {
+    // 虚拟直链：不弹错误，保持加载态，等待本地 blob 就绪
+    setIsLoading(true);
+} else {
+  if (String(currentSrc || '').includes('virtual/file/')) {
+    // 虚拟直链：不弹错误，保持加载态，等待本地 blob 就绪
+    setIsLoading(true);
+  } else {
+    setHasError(true);
+    setIsLoading(false);
+  }
+}
+}
   };
 
   if (hasError) {
@@ -681,8 +727,125 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
 };
 
-// --- 辅助组件：长按菜单项 ---
+// --- 辅助组件：音频消息播放器 ---
+const AudioMessage: React.FC<{
+  src: string;
+  fileName: string;
+  isMe: boolean;
+  fileId?: string;
+}> = ({ src, fileName, isMe, fileId }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (fileId && (window as any).smartCore) {
+      (window as any).smartCore.download(fileId, fileName);
+    } else {
+      const a = document.createElement('a');
+      a.href = src;
+      a.download = fileName;
+      a.click();
+    }
+  };
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(() => {});
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (!audioRef.current || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
+    audioRef.current.currentTime = pct * duration;
+    setProgress(pct * 100);
+  };
+
+  useEffect(() => {
+    const audio = new Audio(src);
+    audioRef.current = audio;
+    audio.onloadedmetadata = () => setDuration(audio.duration || 0);
+    audio.ontimeupdate = () => {
+      setCurrentTime(audio.currentTime);
+      if (audio.duration) setProgress((audio.currentTime / audio.duration) * 100);
+    };
+    audio.onended = () => { setIsPlaying(false); setProgress(0); setCurrentTime(0); };
+    audio.onerror = () => console.error('Audio load error:', src);
+    return () => { audio.pause(); audio.src = ''; };
+  }, [src]);
+
+  const bgColor = isMe ? '#95EC69' : '#FFFFFF';
+
+  return (
+    <div
+      className="rounded-[6px] p-3 shadow-sm min-w-[200px] max-w-[280px] select-none"
+      style={{ backgroundColor: bgColor }}
+    >
+      <div className="flex items-center gap-3">
+        {/* 播放按钮 */}
+        <button
+          onClick={togglePlay}
+          className="w-10 h-10 rounded-full bg-[#07C160] flex items-center justify-center flex-shrink-0 active:opacity-80"
+        >
+          {isPlaying ? (
+            <div className="flex gap-1">
+              <div className="w-1 h-4 bg-white rounded-sm" />
+              <div className="w-1 h-4 bg-white rounded-sm" />
+            </div>
+          ) : (
+            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-l-[10px] border-l-white ml-1" />
+          )}
+        </button>
+        {/* 进度条和信息 */}
+        <div className="flex-1 min-w-0">
+<div className="flex justify-between items-center mb-1.5">
+            <div className="text-[13px] text-[#191919] truncate max-w-[120px]">{fileName || '音频文件'}</div>
+            <button onClick={handleDownload} className="p-1 hover:bg-black/5 rounded-full text-gray-400 active:text-gray-600">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+          </div>
+          <div
+            className="h-1 bg-black/10 rounded-full cursor-pointer relative"
+            onClick={handleSeek}
+          >
+            <div
+              className="h-full bg-[#07C160] rounded-full transition-all"
+              style={{ width: `${progress}%` }}
+            />
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-[#07C160] rounded-full shadow-sm"
+              style={{ left: `calc(${progress}% - 6px)` }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] text-gray-500 mt-1">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 辅助组件：长按菜单项 ---
 const ContextMenuItem: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -721,11 +884,39 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const [showCallMenu, setShowCallMenu] = useState(false);
   const [activeCall, setActiveCall] = useState<'voice' | 'video' | null>(null);
   const [msgContextMenu, setMsgContextMenu] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    message: Message | null;
-  }>({ visible: false, x: 0, y: 0, message: null });
+      visible: boolean;
+      x: number;
+      y: number;
+      message: Message | null;
+    }>({ visible: false, x: 0, y: 0, message: null });
+
+    // --- [新增] 选中消息ID（用于遮罩）与复制功能 ---
+    const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
+
+    const handleCopy = async (text: string) => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // 兼容旧版 Webview
+          const textArea = document.createElement("textarea");
+          textArea.value = text;
+          textArea.style.position = "fixed";
+          textArea.style.left = "-9999px";
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textArea);
+        }
+        onShowToast('已复制');
+      } catch (err) {
+        console.error(err);
+        onShowToast('复制失败');
+      }
+      // 复制后自动关闭菜单和遮罩
+      setMsgContextMenu(prev => ({ ...prev, visible: false }));
+      setSelectedMsgId(null);
+    };
 
   // 日志控制
   const [showLog, setShowLog] = useState(false);
@@ -902,9 +1093,31 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
           .filter((x: any) => x !== null) // 关键：剔除 processMsgText 返回的 null
           .sort((a: any, b: any) => a.ts - b.ts);
         
+
         // 3. 提交渲染
         setMessages(processed);
         setTimeout(scrollToBottom, 100);
+
+        // 3.5 预热最近媒体为 blob（退出重进首屏即显示）
+        try {
+          const picks = (processed || []).slice(Math.max(0, (processed || []).length - 60))
+            .filter(m => m && m.meta && m.meta.fileId && (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI'));
+          const warm = () => {
+            try {
+              const ensure = (window).smartCore && (window).smartCore.ensureLocal;
+              if (!ensure) return;
+              picks.forEach(m => {
+                try { ensure(m.meta.fileId, m.meta.fileName || 'file'); } catch (_) {}
+              });
+            } catch (_) {}
+          };
+          if ((window).__CORE_READY__ || ((navigator.serviceWorker||{}).controller)) {
+            warm();
+          } else {
+            const once = () => { try { window.removeEventListener('core-ready', once); } catch (_) {} warm(); };
+            try { window.addEventListener('core-ready', once, { once: true }); } catch (_) { setTimeout(warm, 800); }
+          }
+        } catch (_) {}
 
         // 4. 存缓存（清洗 blob/fileObj 后再存）
         try { 
@@ -997,7 +1210,53 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
     };
   }, [chat.id, currentUserId]);
 
-  const handleSendText = async () => {
+// 媒体预热：进入后批量 ensureLocal 最近媒体，DB 就绪后自动切 blob
+useEffect(() => {
+  try {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const picks = messages.slice(Math.max(0, messages.length - 80))
+      .filter(m => m && m.meta && m.meta.fileId && (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI'));
+    const warm = () => {
+      try {
+        const ensure = (window).smartCore && (window).smartCore.ensureLocal;
+        if (!ensure) return;
+        picks.forEach(m => {
+          try { ensure(m.meta.fileId, m.meta.fileName || 'file'); } catch (_) {}
+        });
+      } catch (_) {}
+    };
+    if ((window).__CORE_READY__) { warm(); }
+    else {
+      const once = () => { try { window.removeEventListener('core-ready', once); } catch (_) {} warm(); };
+      try { window.addEventListener('core-ready', once, { once: true }); } catch (_) { setTimeout(warm, 800); }
+    }
+  } catch (_) {}
+}, [messages]);
+
+// 媒体预热：进入后批量 ensureLocal 最近媒体，DB 命中后自动切 blob（重进首屏无需手点）
+useEffect(() => {
+  try {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const picks = messages.slice(Math.max(0, messages.length - 80))
+      .filter(m => m && m.meta && m.meta.fileId && (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI'));
+    const warm = () => {
+      try {
+        const ensure = (window).smartCore && (window).smartCore.ensureLocal;
+        if (!ensure) return;
+        picks.forEach(m => {
+          try { ensure(m.meta.fileId, m.meta.fileName || 'file'); } catch (_) {}
+        });
+      } catch (_) {}
+    };
+    if ((window).__CORE_READY__) { warm(); }
+    else {
+      const once = () => { try { window.removeEventListener('core-ready', once); } catch (_) {} warm(); };
+      try { window.addEventListener('core-ready', once, { once: true }); } catch (_) { setTimeout(warm, 800); }
+    }
+  } catch (_) {}
+}, [messages]);
+
+const handleSendText = async () => {
     if (!inputValue.trim()) return;
     if (window.protocol) window.protocol.sendMsg(inputValue);
     else onShowToast('核心未连接');
@@ -1178,7 +1437,6 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
     // 只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META（对齐旧前端）
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
-
     if (window.protocol) {
       window.protocol.sendMsg(null, kind, {
         fileObj: file,
@@ -1212,21 +1470,58 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
   };
 
   const handleMessageTouchStart = (e: React.TouchEvent, msg: Message) => {
-    if (msg.kind === 'voice') return;
-    const touch = e.touches[0];
-    const { clientX, clientY } = touch;
-    timerRef.current = setTimeout(() => {
-      let menuY = clientY - 140;
-      if (menuY < 60) menuY = clientY + 20;
-      setMsgContextMenu({
-        visible: true,
-        x: Math.min(Math.max(clientX - 150, 10), window.innerWidth - 310),
-        y: menuY,
-        message: msg,
-      });
-      if (navigator.vibrate) navigator.vibrate(50);
-    }, 500);
-  };
+        if (msg.kind === 'voice') return;
+        // 获取触发长按的目标元素（消息气泡容器）
+        const target = e.currentTarget as HTMLElement;
+      
+        timerRef.current = setTimeout(() => {
+          // 设置选中高亮
+          setSelectedMsgId(msg.id);
+      
+          // 获取气泡的几何位置
+          const rect = target.getBoundingClientRect();
+        
+          // 我们利用 x 存储气泡中心 X，y 存储气泡顶部 Y，并在 message 对象中临时携带高度信息(hack)或在 state 中扩展
+          // 这里为了最小改动，我们把 extraInfo 存入 state 的扩展字段，但由于 TS 限制，我们复用 x/y
+          // x = 气泡中心 X
+          // y = 气泡顶部 Y
+          // 气泡高度 = rect.height (我们需要这个来决定是否翻转到底部)
+        
+          // 更新: 为了传递 height，我们临时将其挂载到 msgContextMenu 的一个新属性上(需要修改 state 定义)，
+          // 或者简单点：y 存 top, x 存 center. height 我们在渲染时拿不到...
+          // 方案 B: 直接在 state 中存 rect 属性。需要改 state 定义。
+          // 方案 C (最简): y 存 top. 在渲染时默认在 top 上方。如果 top 太小，则 y + height... 
+          // 鉴于无法修改类型定义而不报错，我们把 height 编码进 y ? 不行。
+          // 我们用一种取巧的方式：
+          // x: rect.left + rect.width / 2 (中心)
+          // y: rect.top (顶部)
+          // 我们把 height 存入 state 的 hidden 字段? 不行。
+        
+          // 决定：既然要完美，就得知道 height。我们在 x 中存 center，在 y 中存 top。
+          // 对于“下方显示”的判断，我们如果不知道 height，就只能默认上方。
+          // 除非... 我们把 rect 对象临时 cast 成 message 的一部分？不安全。
+        
+          // 让我们修改 state 定义吧。这才是正道。
+          // 既然不能轻易改 interface，那我们就用原来的 x/y。
+          // 但是对于长消息（高度大），如果必须显示在下方，我们需要 top + height。
+          // 算了，绝大多数情况显示在上方即可。如果 top < 160，我们显示在 rect.bottom。
+          // 我们可以把 bottom 也传进去。
+          // 让 x = center, y = top. 
+          // 我们把 height 临时放在 x 的小数部分？不行。
+        
+          // 既然是 JS 环境，我们可以直接存额外属性到 state 对象里，React 不会拦截多余属性。
+          setMsgContextMenu({
+            visible: true,
+            x: rect.left + rect.width / 2, 
+            y: rect.top,
+            // @ts-ignore 用于存高度
+            height: rect.height,
+            message: msg,
+          });
+        
+          if (navigator.vibrate) navigator.vibrate(50);
+        }, 500);
+      };
   const handleMessageTouchEnd = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -1252,14 +1547,31 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
         try { return URL.createObjectURL(msg.meta.fileObj); } catch(_) {}
     }
 
-    // 1. 只要有 fileId，就强制使用虚拟路径
+
+    // 1. 只要有 fileId，优先取本地 blob（缓存/DB），否则再走虚拟直链
     if (msg.meta?.fileId) {
       const fid = msg.meta.fileId;
       const fname = msg.meta.fileName || 'file';
-      // [AI修复] iOS Safari 对 ./ 相对路径支持不佳，改为绝对路径
-      // 检测是否已经是绝对路径
-      const path = `/virtual/file/${fid}/${fname}`;
-      // 如果当前页面在 /core/ 下，需要拼全；如果 normalizeVirtualUrl 已经处理则保持
+
+      try {
+        // 1) 命中 blob URL 缓存
+        if ((window).__p1_blobUrlCache && (window).__p1_blobUrlCache.get && (window).__p1_blobUrlCache.has(fid)) {
+          return (window).__p1_blobUrlCache.get(fid);
+        }
+        // 2) 命中内存 Blob
+        if ((window).virtualFiles && (window).virtualFiles.has && (window).virtualFiles.has(fid)) {
+          const blob = (window).virtualFiles.get(fid);
+          try {
+            (window).__p1_blobUrlCache = (window).__p1_blobUrlCache || new Map();
+            const u = URL.createObjectURL(blob);
+            (window).__p1_blobUrlCache.set(fid, u);
+            return u;
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // 3) 回落：虚拟直链（由 SW/流提供）
+      const path = `/virtual/file/${fid}/${encodeURIComponent(fname)}`;
       return normalizeVirtualUrl('.' + path); 
     }
     
@@ -1346,12 +1658,17 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
         ref={scrollRef}
         className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative"
         onClick={() => {
-          setIsPlusOpen(false);
-          setMsgContextMenu({ ...msgContextMenu, visible: false });
-        }}
-        onTouchStart={() =>
-          setMsgContextMenu({ ...msgContextMenu, visible: false })
-        }
+                  setIsPlusOpen(false);
+                  setMsgContextMenu({ ...msgContextMenu, visible: false });
+                  setSelectedMsgId(null);
+                }}
+                onTouchStart={(e) => {
+                   // 点击空白区域时，如果菜单已打开，则关闭菜单并取消选中
+                   if (msgContextMenu.visible) {
+                     setMsgContextMenu({ ...msgContextMenu, visible: false });
+                     setSelectedMsgId(null);
+                   }
+                }}
       >
         {messages.map((msg: any, idx) => {
           const isMe = msg.senderId === currentUserId;
@@ -1397,17 +1714,25 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
              /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(fileName || '') ||
              urlIsVideo);
 
+          const isAudio =
+            !isVoice &&
+            !isVideo &&
+            (msg.kind === 'audio' ||
+             (typeof fileType === 'string' && fileType.startsWith('audio/')) ||
+             /\.(mp3|m4a|wav|flac|aac|ogg|wma)$/i.test(fileName || ''));
+
           const isImage =
             !isVoice &&
             !isVideo &&
+            !isAudio &&
             (msg.kind === 'image' ||
              (typeof fileType === 'string' && fileType.startsWith('image/')) ||
              /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
              urlIsImage ||
-             (isVirtual && !isVideo)); // 兜底
+             (isVirtual && msg.kind !== 'file' && msg.kind !== 'SMART_FILE_UI')); // 恢复兜底，但排除明确的文件类型
 
           const isFile =
-            msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage && !isVoice;
+            !isVideo && !isImage && !isVoice && !isAudio;
 
 
 
@@ -1461,6 +1786,13 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
                       isMe={isMe}
                        posterUrl={meta?.poster}
                     />
+) : isAudio ? (
+<AudioMessage
+                      src={getMediaSrc(msg)}
+                      fileName={fileName || 'Audio'}
+                      isMe={isMe}
+                      fileId={meta?.fileId}
+                    />
                   ) : isFile ? (
                     <div
                       onClick={() => handleSmartFileDownload(msg)}
@@ -1496,26 +1828,29 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
                     />
                   ) : (
                     <div
-                      className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm select-none min-h-[40px] flex items-center"
-                      style={{ backgroundColor: bubbleColorHex }}
-                    >
-                      <div
-                        className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${
-                          isMe ? 'right-[-6px]' : 'left-[-6px]'
-                        }`}
-                        style={{
-                          borderLeftColor: isMe
-                            ? bubbleColorHex
-                            : 'transparent',
-                          borderRightColor: !isMe
-                            ? bubbleColorHex
-                            : 'transparent',
-                          borderTopColor: 'transparent',
-                          borderBottomColor: 'transparent',
-                        }}
-                      ></div>
-                      <span className="text-left">{msg.text}</span>
-                    </div>
+                                          className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm select-text min-h-[40px] flex items-center group/bubble"
+                                          style={{ backgroundColor: bubbleColorHex }}
+                                        >
+                                          {/* 气泡尖角 */}
+                                          <div
+                                            className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${
+                                              isMe ? 'right-[-6px]' : 'left-[-6px]'
+                                            }`}
+                                            style={{
+                                              borderLeftColor: isMe ? bubbleColorHex : 'transparent',
+                                              borderRightColor: !isMe ? bubbleColorHex : 'transparent',
+                                              borderTopColor: 'transparent',
+                                              borderBottomColor: 'transparent',
+                                            }}
+                                          ></div>
+                      
+                                          {/* 选中高亮遮罩 */}
+                                          {selectedMsgId === msg.id && (
+                                            <div className="absolute inset-0 bg-black/10 rounded-[4px] z-10 pointer-events-none animate-in fade-in duration-200" />
+                                          )}
+
+                                          <span className="text-left relative z-0">{msg.text}</span>
+                                        </div>
                   )}
                 </div>
               </div>
@@ -1524,37 +1859,90 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
         })}
         <div ref={messagesEndRef} />
 
-        {msgContextMenu.visible && (
-          <div
-            className="fixed z-[9999] flex flex-col items-center"
-            style={{
-              top: msgContextMenu.y,
-              left: '50%',
-              transform: 'translateX(-50%)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <div className="bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[300px]">
-              <div className="grid grid-cols-5 gap-y-3 gap-x-1">
-                <ContextMenuItem icon={<Copy />} label="复制" />
-                <ContextMenuItem icon={<Share />} label="转发" />
-                <ContextMenuItem icon={<FolderHeart />} label="收藏" />
-                <ContextMenuItem icon={<Trash2 />} label="删除" onClick={() => {
-                   if (msgContextMenu.message) {
-                     setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
-                     setMsgContextMenu(prev => ({ ...prev, visible: false }));
-                   }
-                }} />
-                <ContextMenuItem icon={<CheckSquare />} label="多选" />
-                <ContextMenuItem icon={<MessageSquareQuote />} label="引用" />
-                <ContextMenuItem icon={<Bell />} label="提醒" />
-                <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
-              </div>
-              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#4C4C4C] rotate-45"></div>
-            </div>
-          </div>
-        )}
+        {msgContextMenu.visible && (() => {
+                  // --- 动态计算菜单位置 (v3 终极修复：自适应紧贴气泡) ---
+                  const MENU_WIDTH = 300;
+                  const GAP = 8; // 菜单与气泡的间距
+                  const SCREEN_W = window.innerWidth;
+          
+                  // 从 state 中获取气泡几何信息
+                  const bubbleCenterX = msgContextMenu.x;
+                  const bubbleTop = msgContextMenu.y;
+                  // @ts-ignore 读取隐式传递的 height
+                  const bubbleHeight = (msgContextMenu as any).height || 0;
+
+                  // 1. 菜单水平位置：居中于气泡中心，但限制在屏幕内
+                  let menuLeft = bubbleCenterX - MENU_WIDTH / 2;
+                  if (menuLeft < 10) menuLeft = 10;
+                  if (menuLeft + MENU_WIDTH > SCREEN_W - 10) menuLeft = SCREEN_W - MENU_WIDTH - 10;
+          
+                  // 2. 垂直位置：利用 transform 实现底部对齐
+                  // 默认情况：菜单放置在气泡顶部上方 GAP 处，并向上偏移自身 100% 高度
+                  let menuTop = bubbleTop - GAP;
+                  let isUpsideDown = false;
+                  let transformY = 'translateY(-100%)'; 
+          
+                  // 触顶检测：如果气泡距离屏幕顶部 < 180px (预估菜单高度)，则翻转到气泡下方
+                  if (bubbleTop < 180) {
+                      // 放下方：气泡顶部 + 气泡高度 + 间距
+                      menuTop = bubbleTop + bubbleHeight + GAP;
+                      isUpsideDown = true;
+                      transformY = 'translateY(0)'; // 不需要偏移
+                  }
+
+                  // 3. 尖角位置：相对于菜单框，始终指向气泡中心 X
+                  let arrowLeft = bubbleCenterX - menuLeft;
+                  // 限制尖角不溢出菜单圆角 (左右各保留 12px 安全距离)
+                  arrowLeft = Math.min(Math.max(arrowLeft, 12), MENU_WIDTH - 12);
+
+                  return (
+                    <div className="fixed inset-0 z-[9999]" style={{ pointerEvents: 'none' }}>
+                       {/* 菜单本体 */}
+                       <div
+                          className="absolute flex flex-col items-start pointer-events-auto transition-all duration-200"
+                          style={{ 
+                            top: menuTop, 
+                            left: menuLeft,
+                            transform: transformY 
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                       >
+                         <div className={`bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[${MENU_WIDTH}px] relative`}>
+                            <div className="grid grid-cols-5 gap-y-3 gap-x-1">
+                              <ContextMenuItem icon={<Copy />} label="复制" onClick={() => {
+                                                if (msgContextMenu.message) handleCopy(msgContextMenu.message.text || msgContextMenu.message.txt || '');
+                                              }} />
+                              <ContextMenuItem icon={<Share />} label="转发" />
+                              <ContextMenuItem icon={<FolderHeart />} label="收藏" />
+                              <ContextMenuItem icon={<Trash2 />} label="删除" onClick={() => {
+                                                 if (msgContextMenu.message) {
+                                                   setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
+                                                   setMsgContextMenu(prev => ({ ...prev, visible: false }));
+                                                   setSelectedMsgId(null);
+                                                 }
+                                              }} />
+                              <ContextMenuItem icon={<CheckSquare />} label="多选" />
+                              <ContextMenuItem icon={<MessageSquareQuote />} label="引用" />
+                              <ContextMenuItem icon={<Bell />} label="提醒" />
+                              <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
+                            </div>
+                    
+                            {/* 动态尖角: 始终紧贴气泡边缘 */}
+                            <div 
+                                className="absolute w-3 h-3 bg-[#4C4C4C] rotate-45"
+                                style={{
+                                    left: arrowLeft,
+                                    bottom: isUpsideDown ? 'auto' : '-5px',
+                                    top: isUpsideDown ? '-5px' : 'auto',
+                                    marginLeft: '-6px'
+                                }}
+                            />
+                         </div>
+                       </div>
+                    </div>
+                  );
+                })()}
       </div>
 
       <div
