@@ -14,7 +14,7 @@ export function useCoreBridge() {
     setCurrentUser({
         id: window.state.myId,
         name: window.state.myName,
-https://picsum.photos/seed/${window.state.myId}/200/200
+avatar: `https://picsum.photos/seed/${window.state.myId}/200/200`,
         wechatId: window.state.myId,
         region: window.state.isHub ? 'Hub Node' : 'Client Node'
     });
@@ -46,7 +46,7 @@ https://picsum.photos/seed/${window.state.myId}/200/200
         user: { 
             id: c.id, 
             name: c.n || c.id.slice(0, 6), 
-https://picsum.photos/seed/${c.id}/200/200
+avatar: `https://picsum.photos/seed/${c.id}/200/200`
         },
         lastMessage: isOnline ? '[在线]' : '[离线]',
         timestamp: isOnline ? '刚刚' : '',
