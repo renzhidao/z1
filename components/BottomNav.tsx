@@ -4,7 +4,7 @@ import { Tab } from '../types';
 
 const ActiveCompassIcon = ({ size }: { size: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <circle cx="12" cy="12" r="10" fill="#07C160" />
+<circle cx="12" cy="12" r="12" fill="#07C160" />
     <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="white" />
   </svg>
 );
