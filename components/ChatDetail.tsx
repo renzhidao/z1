@@ -319,7 +319,7 @@ const [isLoading, setIsLoading] = useState(false); // 强制关闭初始Loading�
     <div className="relative inline-block min-h-[50px] min-w-[50px]">
       <img
         src={currentSrc}
-className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white object-cover min-h-[50px]"
+className="rounded-[6px] border border-gray-200 max-w-[200px] bg-gray-100 object-cover min-h-[120px] min-w-[80px]"
         alt={alt}
         onClick={(e) => {
           e.stopPropagation();
@@ -1456,51 +1456,28 @@ const handleSendText = async () => {
 
   const handleMessageTouchStart = (e: React.TouchEvent, msg: Message) => {
         if (msg.kind === 'voice') return;
-        // 获取触发长按的目标元素（消息气泡容器）
         const target = e.currentTarget as HTMLElement;
+        
+        // [AI修复] 记录触摸点Y坐标，用于长文本时菜单定位在手指位置
+        const touchY = e.touches[0]?.clientY || 0;
+        const touchX = e.touches[0]?.clientX || 0;
       
         timerRef.current = setTimeout(() => {
-          // 设置选中高亮
           setSelectedMsgId(msg.id);
-      
-          // 获取气泡的几何位置
           const rect = target.getBoundingClientRect();
-        
-          // 我们利用 x 存储气泡中心 X，y 存储气泡顶部 Y，并在 message 对象中临时携带高度信息(hack)或在 state 中扩展
-          // 这里为了最小改动，我们把 extraInfo 存入 state 的扩展字段，但由于 TS 限制，我们复用 x/y
-          // x = 气泡中心 X
-          // y = 气泡顶部 Y
-          // 气泡高度 = rect.height (我们需要这个来决定是否翻转到底部)
-        
-          // 更新: 为了传递 height，我们临时将其挂载到 msgContextMenu 的一个新属性上(需要修改 state 定义)，
-          // 或者简单点：y 存 top, x 存 center. height 我们在渲染时拿不到...
-          // 方案 B: 直接在 state 中存 rect 属性。需要改 state 定义。
-          // 方案 C (最简): y 存 top. 在渲染时默认在 top 上方。如果 top 太小，则 y + height... 
-          // 鉴于无法修改类型定义而不报错，我们把 height 编码进 y ? 不行。
-          // 我们用一种取巧的方式：
-          // x: rect.left + rect.width / 2 (中心)
-          // y: rect.top (顶部)
-          // 我们把 height 存入 state 的 hidden 字段? 不行。
-        
-          // 决定：既然要完美，就得知道 height。我们在 x 中存 center，在 y 中存 top。
-          // 对于“下方显示”的判断，我们如果不知道 height，就只能默认上方。
-          // 除非... 我们把 rect 对象临时 cast 成 message 的一部分？不安全。
-        
-          // 让我们修改 state 定义吧。这才是正道。
-          // 既然不能轻易改 interface，那我们就用原来的 x/y。
-          // 但是对于长消息（高度大），如果必须显示在下方，我们需要 top + height。
-          // 算了，绝大多数情况显示在上方即可。如果 top < 160，我们显示在 rect.bottom。
-          // 我们可以把 bottom 也传进去。
-          // 让 x = center, y = top. 
-          // 我们把 height 临时放在 x 的小数部分？不行。
-        
-          // 既然是 JS 环境，我们可以直接存额外属性到 state 对象里，React 不会拦截多余属性。
+          
+          // [AI修复] 对于长文本（高度>屏幕40%），使用触摸点Y坐标；否则使用气泡顶部
+          const isLongText = rect.height > window.innerHeight * 0.4;
+          const menuY = isLongText ? touchY : rect.top;
+          
           setMsgContextMenu({
             visible: true,
             x: rect.left + rect.width / 2, 
-            y: rect.top,
-            // @ts-ignore 用于存高度
-            height: rect.height,
+            y: menuY,
+            // @ts-ignore
+            height: isLongText ? 0 : rect.height, // 长文本时不需要翻转逻辑
+            // @ts-ignore 标记是否为长文本模式
+            isLongText: isLongText,
             message: msg,
           });
         
@@ -1734,11 +1711,11 @@ const handleSendText = async () => {
                 </div>
               )}
 
-              <div
-                className={`flex ${
-                  isMe ? 'flex-row-reverse' : 'flex-row'
-                } items-start group`}
-              >
+                <div
+                  className={`flex ${
+                    isMe ? 'flex-row-reverse' : 'flex-row'
+                  } items-start group animate-in fade-in slide-in-from-bottom-2 duration-200`}
+                >
                 <img
                   src={
                     isMe
@@ -1835,7 +1812,7 @@ const handleSendText = async () => {
                                             <div className="absolute inset-0 bg-black/10 rounded-[4px] z-10 pointer-events-none animate-in fade-in duration-200" />
                                           )}
 
-<span className="text-left relative z-0 whitespace-pre-wrap break-all">{msg.text}</span>
+<span className="text-left relative z-0 whitespace-pre-wrap break-all overflow-hidden" style={{wordBreak:'break-word',overflowWrap:'anywhere',maxWidth:'100%'}}>{msg.text}</span>
                                         </div>
                   )}
                 </div>
