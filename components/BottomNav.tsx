@@ -2,6 +2,13 @@ import React from 'react';
 import { MessageCircle, Users, Compass, User } from 'lucide-react';
 import { Tab } from '../types';
 
+const ActiveCompassIcon = ({ size }: { size: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="10" fill="#07C160" />
+    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="white" />
+  </svg>
+);
+
 interface BottomNavProps {
   currentTab: Tab;
   onTabChange: (tab: Tab) => void;
@@ -29,12 +36,16 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange }) => {
               className="flex-1 flex flex-col items-center justify-center space-y-[2px] w-full h-full active:bg-gray-200/30 transition-colors cursor-pointer"
             >
               <div className={`relative transition-transform duration-200 ${isActive ? 'scale-100' : 'scale-100'}`}>
-<Icon 
+{item.id === Tab.DISCOVER && isActive ? (
+                <ActiveCompassIcon size={26} />
+              ) : (
+                <Icon 
                   size={26} 
                   strokeWidth={isActive ? 2 : 1.5}
-                  className={isActive ? (item.id === Tab.DISCOVER ? 'text-[#07C160]' : 'text-[#07C160] fill-[#07C160]') : 'text-[#191919]'} 
-                  fill={isActive && item.id !== Tab.DISCOVER ? 'currentColor' : 'none'}
+                  className={isActive ? 'text-[#07C160] fill-[#07C160]' : 'text-[#191919]'} 
+                  fill={isActive ? 'currentColor' : 'none'}
                 />
+              )}
                 {/* Example Badge for Chats tab */}
                 {item.id === Tab.CHATS && (
                   <span className="absolute -top-1 -right-2 bg-[#FA5151] text-white text-[10px] font-medium px-[5px] min-w-[16px] h-[16px] flex items-center justify-center rounded-full border border-[#F7F7F7]">
