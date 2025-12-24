@@ -168,7 +168,7 @@ const ImageMessage: React.FC<{
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
-const [currentSrc, setCurrentSrc] = useState(() => (src.includes('virtual/file/') ? '' : src));
+  const [currentSrc, setCurrentSrc] = useState(src);
 
 
 
@@ -198,38 +198,11 @@ useEffect(() => {
     } catch (_) { return null; }
   };
 
-const vf = isVirtual ? parseVirtual(src) : null;
+  const vf = isVirtual ? parseVirtual(src) : null;
 
-// 优先使用已缓存 blob（无需等待 SW/网络）
-try {
-  if (vf && (window).__p1_blobUrlCache && (window).__p1_blobUrlCache.has && (window).__p1_blobUrlCache.has(vf.fid)) {
-    const u = (window).__p1_blobUrlCache.get(vf.fid);
-    if (u && typeof u === 'string' && u.startsWith('blob:')) {
-      setCurrentSrc(u);
-      setHasError(false);
-      setIsLoading(false);
-    }
-  }
-} catch (_) {}
-
-
-  // 进入即尝试本地命中（IndexedDB/内存）→ 直接切 blob，避免首帧走 SW 超时
-  if (isVirtual && vf && (window).smartCore && (window).smartCore.ensureLocal) {
-    try {
-      const maybe = (window).smartCore.ensureLocal(vf.fid, vf.fname);
-      if (maybe && typeof maybe.then === 'function') {
-        maybe.then((u) => {
-          try {
-            if (!active) return;
-            if (u && typeof u === 'string' && u.startsWith('blob:')) {
-              setCurrentSrc(u);
-              setHasError(false);
-              setIsLoading(false);
-            }
-          } catch (_) {}
-        }).catch(() => {});
-      }
-    } catch (_) {}
+  // iOS/无SW兜底：没有 SW 控制时，触发 smartCore 下载，等完成事件后切换成 blob URL
+  if (isVirtual && !(navigator.serviceWorker && navigator.serviceWorker.controller) && vf && (window).smartCore) {
+try { window.smartCore && window.smartCore.ensureLocal && window.smartCore.ensureLocal(vf.fid, vf.fname); } catch (_) {}
   }
 
   const onReady = (e) => {
@@ -250,31 +223,22 @@ try {
 
   try { window.addEventListener('p1-file-ready', onReady); } catch (_) {}
 
-const t1 = setTimeout(() => {
-  if (!active) return;
-  // 仅当非虚拟，或已由 SW 控制时，才切到虚拟直链；否则继续等待 blob
-  if (!isVirtual || (navigator.serviceWorker && navigator.serviceWorker.controller)) {
-    setCurrentSrc(src);
-  }
-}, delay);
+  const t1 = setTimeout(() => {
+    if (active) setCurrentSrc(src);
+  }, delay);
 
-// 超时看门狗 (延后启动) —— 虚拟直链不立刻置错，继续等待 blob 事件
-const t2 = setTimeout(() => {
-   if (!active) return;
-   setIsLoading((loading) => {
-     if (loading) {
-       console.warn('⚠️ [ImageMessage] 加载超时:', src);
-       if (isVirtual) {
-         // 对于虚拟资源，维持 loading，等待 p1-file-ready/ensureLocal 返回
-         return loading;
-       } else {
-         setHasError(true);
+  // 超时看门狗 (延后启动)
+  const t2 = setTimeout(() => {
+     if (!active) return;
+     setIsLoading((loading) => {
+       if (loading) {
+         console.warn('⚠️ [ImageMessage] 超时强制打断:', src);
+         setHasError(true); 
          return false;
        }
-     }
-     return loading;
-   });
-}, 9000 + delay);
+       return loading;
+     });
+  }, 5000 + delay);
 
   return () => { 
     active = false; 
@@ -299,20 +263,10 @@ if (currentSrc.includes('virtual/file/') && retryCount < 3) {
           setCurrentSrc(withBust);
         } catch (_) {}
       }, 1000); // 稍微延长重试间隔到 1s
-} else {
-  if (String(currentSrc || '').includes('virtual/file/')) {
-    // 虚拟直链：不弹错误，保持加载态，等待本地 blob 就绪
-    setIsLoading(true);
-} else {
-  if (String(currentSrc || '').includes('virtual/file/')) {
-    // 虚拟直链：不弹错误，保持加载态，等待本地 blob 就绪
-    setIsLoading(true);
-  } else {
-    setHasError(true);
-    setIsLoading(false);
-  }
-}
-}
+    } else {
+      setHasError(true);
+      setIsLoading(false);
+    }
   };
 
   if (hasError) {
@@ -767,39 +721,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({
   const [showCallMenu, setShowCallMenu] = useState(false);
   const [activeCall, setActiveCall] = useState<'voice' | 'video' | null>(null);
   const [msgContextMenu, setMsgContextMenu] = useState<{
-      visible: boolean;
-      x: number;
-      y: number;
-      message: Message | null;
-    }>({ visible: false, x: 0, y: 0, message: null });
-
-    // --- [新增] 选中消息ID（用于遮罩）与复制功能 ---
-    const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
-
-    const handleCopy = async (text: string) => {
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          // 兼容旧版 Webview
-          const textArea = document.createElement("textarea");
-          textArea.value = text;
-          textArea.style.position = "fixed";
-          textArea.style.left = "-9999px";
-          document.body.appendChild(textArea);
-          textArea.select();
-          document.execCommand("copy");
-          document.body.removeChild(textArea);
-        }
-        onShowToast('已复制');
-      } catch (err) {
-        console.error(err);
-        onShowToast('复制失败');
-      }
-      // 复制后自动关闭菜单和遮罩
-      setMsgContextMenu(prev => ({ ...prev, visible: false }));
-      setSelectedMsgId(null);
-    };
+    visible: boolean;
+    x: number;
+    y: number;
+    message: Message | null;
+  }>({ visible: false, x: 0, y: 0, message: null });
 
   // 日志控制
   const [showLog, setShowLog] = useState(false);
@@ -976,31 +902,9 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
           .filter((x: any) => x !== null) // 关键：剔除 processMsgText 返回的 null
           .sort((a: any, b: any) => a.ts - b.ts);
         
-
         // 3. 提交渲染
         setMessages(processed);
         setTimeout(scrollToBottom, 100);
-
-        // 3.5 预热最近媒体为 blob（退出重进首屏即显示）
-        try {
-          const picks = (processed || []).slice(Math.max(0, (processed || []).length - 60))
-            .filter(m => m && m.meta && m.meta.fileId && (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI'));
-          const warm = () => {
-            try {
-              const ensure = (window).smartCore && (window).smartCore.ensureLocal;
-              if (!ensure) return;
-              picks.forEach(m => {
-                try { ensure(m.meta.fileId, m.meta.fileName || 'file'); } catch (_) {}
-              });
-            } catch (_) {}
-          };
-          if ((window).__CORE_READY__ || ((navigator.serviceWorker||{}).controller)) {
-            warm();
-          } else {
-            const once = () => { try { window.removeEventListener('core-ready', once); } catch (_) {} warm(); };
-            try { window.addEventListener('core-ready', once, { once: true }); } catch (_) { setTimeout(warm, 800); }
-          }
-        } catch (_) {}
 
         // 4. 存缓存（清洗 blob/fileObj 后再存）
         try { 
@@ -1093,53 +997,7 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
     };
   }, [chat.id, currentUserId]);
 
-// 媒体预热：进入后批量 ensureLocal 最近媒体，DB 就绪后自动切 blob
-useEffect(() => {
-  try {
-    if (!Array.isArray(messages) || messages.length === 0) return;
-    const picks = messages.slice(Math.max(0, messages.length - 80))
-      .filter(m => m && m.meta && m.meta.fileId && (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI'));
-    const warm = () => {
-      try {
-        const ensure = (window).smartCore && (window).smartCore.ensureLocal;
-        if (!ensure) return;
-        picks.forEach(m => {
-          try { ensure(m.meta.fileId, m.meta.fileName || 'file'); } catch (_) {}
-        });
-      } catch (_) {}
-    };
-    if ((window).__CORE_READY__) { warm(); }
-    else {
-      const once = () => { try { window.removeEventListener('core-ready', once); } catch (_) {} warm(); };
-      try { window.addEventListener('core-ready', once, { once: true }); } catch (_) { setTimeout(warm, 800); }
-    }
-  } catch (_) {}
-}, [messages]);
-
-// 媒体预热：进入后批量 ensureLocal 最近媒体，DB 命中后自动切 blob（重进首屏无需手点）
-useEffect(() => {
-  try {
-    if (!Array.isArray(messages) || messages.length === 0) return;
-    const picks = messages.slice(Math.max(0, messages.length - 80))
-      .filter(m => m && m.meta && m.meta.fileId && (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI'));
-    const warm = () => {
-      try {
-        const ensure = (window).smartCore && (window).smartCore.ensureLocal;
-        if (!ensure) return;
-        picks.forEach(m => {
-          try { ensure(m.meta.fileId, m.meta.fileName || 'file'); } catch (_) {}
-        });
-      } catch (_) {}
-    };
-    if ((window).__CORE_READY__) { warm(); }
-    else {
-      const once = () => { try { window.removeEventListener('core-ready', once); } catch (_) {} warm(); };
-      try { window.addEventListener('core-ready', once, { once: true }); } catch (_) { setTimeout(warm, 800); }
-    }
-  } catch (_) {}
-}, [messages]);
-
-const handleSendText = async () => {
+  const handleSendText = async () => {
     if (!inputValue.trim()) return;
     if (window.protocol) window.protocol.sendMsg(inputValue);
     else onShowToast('核心未连接');
@@ -1354,25 +1212,21 @@ const handleSendText = async () => {
   };
 
   const handleMessageTouchStart = (e: React.TouchEvent, msg: Message) => {
-      if (msg.kind === 'voice') return;
-      const touch = e.touches[0];
-      const { clientX, clientY } = touch;
-      timerRef.current = setTimeout(() => {
-        let menuY = clientY - 140;
-        if (menuY < 60) menuY = clientY + 20;
-      
-        // 设置选中高亮
-        setSelectedMsgId(msg.id);
-      
-        setMsgContextMenu({
-          visible: true,
-          x: Math.min(Math.max(clientX - 150, 10), window.innerWidth - 310),
-          y: menuY,
-          message: msg,
-        });
-        if (navigator.vibrate) navigator.vibrate(50);
-      }, 500);
-    };
+    if (msg.kind === 'voice') return;
+    const touch = e.touches[0];
+    const { clientX, clientY } = touch;
+    timerRef.current = setTimeout(() => {
+      let menuY = clientY - 140;
+      if (menuY < 60) menuY = clientY + 20;
+      setMsgContextMenu({
+        visible: true,
+        x: Math.min(Math.max(clientX - 150, 10), window.innerWidth - 310),
+        y: menuY,
+        message: msg,
+      });
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 500);
+  };
   const handleMessageTouchEnd = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -1398,31 +1252,14 @@ const handleSendText = async () => {
         try { return URL.createObjectURL(msg.meta.fileObj); } catch(_) {}
     }
 
-
-    // 1. 只要有 fileId，优先取本地 blob（缓存/DB），否则再走虚拟直链
+    // 1. 只要有 fileId，就强制使用虚拟路径
     if (msg.meta?.fileId) {
       const fid = msg.meta.fileId;
       const fname = msg.meta.fileName || 'file';
-
-      try {
-        // 1) 命中 blob URL 缓存
-        if ((window).__p1_blobUrlCache && (window).__p1_blobUrlCache.get && (window).__p1_blobUrlCache.has(fid)) {
-          return (window).__p1_blobUrlCache.get(fid);
-        }
-        // 2) 命中内存 Blob
-        if ((window).virtualFiles && (window).virtualFiles.has && (window).virtualFiles.has(fid)) {
-          const blob = (window).virtualFiles.get(fid);
-          try {
-            (window).__p1_blobUrlCache = (window).__p1_blobUrlCache || new Map();
-            const u = URL.createObjectURL(blob);
-            (window).__p1_blobUrlCache.set(fid, u);
-            return u;
-          } catch (_) {}
-        }
-      } catch (_) {}
-
-      // 3) 回落：虚拟直链（由 SW/流提供）
-      const path = `/virtual/file/${fid}/${encodeURIComponent(fname)}`;
+      // [AI修复] iOS Safari 对 ./ 相对路径支持不佳，改为绝对路径
+      // 检测是否已经是绝对路径
+      const path = `/virtual/file/${fid}/${fname}`;
+      // 如果当前页面在 /core/ 下，需要拼全；如果 normalizeVirtualUrl 已经处理则保持
       return normalizeVirtualUrl('.' + path); 
     }
     
@@ -1509,17 +1346,12 @@ const handleSendText = async () => {
         ref={scrollRef}
         className="flex-1 overflow-y-auto no-scrollbar p-4 bg-[#EDEDED] relative"
         onClick={() => {
-                  setIsPlusOpen(false);
-                  setMsgContextMenu({ ...msgContextMenu, visible: false });
-                  setSelectedMsgId(null);
-                }}
-                onTouchStart={(e) => {
-                   // 点击空白区域时，如果菜单已打开，则关闭菜单并取消选中
-                   if (msgContextMenu.visible) {
-                     setMsgContextMenu({ ...msgContextMenu, visible: false });
-                     setSelectedMsgId(null);
-                   }
-                }}
+          setIsPlusOpen(false);
+          setMsgContextMenu({ ...msgContextMenu, visible: false });
+        }}
+        onTouchStart={() =>
+          setMsgContextMenu({ ...msgContextMenu, visible: false })
+        }
       >
         {messages.map((msg: any, idx) => {
           const isMe = msg.senderId === currentUserId;
@@ -1664,29 +1496,26 @@ const handleSendText = async () => {
                     />
                   ) : (
                     <div
-                                          className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm select-text min-h-[40px] flex items-center group/bubble"
-                                          style={{ backgroundColor: bubbleColorHex }}
-                                        >
-                                          {/* 气泡尖角 */}
-                                          <div
-                                            className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${
-                                              isMe ? 'right-[-6px]' : 'left-[-6px]'
-                                            }`}
-                                            style={{
-                                              borderLeftColor: isMe ? bubbleColorHex : 'transparent',
-                                              borderRightColor: !isMe ? bubbleColorHex : 'transparent',
-                                              borderTopColor: 'transparent',
-                                              borderBottomColor: 'transparent',
-                                            }}
-                                          ></div>
-                      
-                                          {/* 选中高亮遮罩 */}
-                                          {selectedMsgId === msg.id && (
-                                            <div className="absolute inset-0 bg-black/10 rounded-[4px] z-10 pointer-events-none animate-in fade-in duration-200" />
-                                          )}
-
-                                          <span className="text-left relative z-0">{msg.text}</span>
-                                        </div>
+                      className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed break-words shadow-sm select-none min-h-[40px] flex items-center"
+                      style={{ backgroundColor: bubbleColorHex }}
+                    >
+                      <div
+                        className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${
+                          isMe ? 'right-[-6px]' : 'left-[-6px]'
+                        }`}
+                        style={{
+                          borderLeftColor: isMe
+                            ? bubbleColorHex
+                            : 'transparent',
+                          borderRightColor: !isMe
+                            ? bubbleColorHex
+                            : 'transparent',
+                          borderTopColor: 'transparent',
+                          borderBottomColor: 'transparent',
+                        }}
+                      ></div>
+                      <span className="text-left">{msg.text}</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1708,18 +1537,15 @@ const handleSendText = async () => {
           >
             <div className="bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[300px]">
               <div className="grid grid-cols-5 gap-y-3 gap-x-1">
-                <ContextMenuItem icon={<Copy />} label="复制" onClick={() => {
-                                  if (msgContextMenu.message) handleCopy(msgContextMenu.message.text || msgContextMenu.message.txt || '');
-                                }} />
+                <ContextMenuItem icon={<Copy />} label="复制" />
                 <ContextMenuItem icon={<Share />} label="转发" />
                 <ContextMenuItem icon={<FolderHeart />} label="收藏" />
                 <ContextMenuItem icon={<Trash2 />} label="删除" onClick={() => {
-                                   if (msgContextMenu.message) {
-                                     setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
-                                     setMsgContextMenu(prev => ({ ...prev, visible: false }));
-                                     setSelectedMsgId(null);
-                                   }
-                                }} />
+                   if (msgContextMenu.message) {
+                     setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
+                     setMsgContextMenu(prev => ({ ...prev, visible: false }));
+                   }
+                }} />
                 <ContextMenuItem icon={<CheckSquare />} label="多选" />
                 <ContextMenuItem icon={<MessageSquareQuote />} label="引用" />
                 <ContextMenuItem icon={<Bell />} label="提醒" />
