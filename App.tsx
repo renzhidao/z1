@@ -24,7 +24,7 @@ import Signature from './components/Signature';
 import ChangeCover from './components/ChangeCover';
 import { Tab, Chat, User, ToastState } from './types';
 import { useCoreBridge } from './hooks/useCoreBridge';
-import { User as UserIcon, Box, ShoppingBag, Gamepad, Zap, Smile, CreditCard, Image, Camera, ChevronRight, Search as SearchIcon, Users, Tag, FileText, MessageSquare, Settings as SettingsIcon, Smartphone, ScanLine, Wallet } from 'lucide-react';
+import { User as UserIcon, Box, ShoppingBag, Gamepad, Zap, Smile, CreditCard, Image, Camera, ChevronRight, Search as SearchIcon, Users, Tag, FileText, MessageSquare, Settings as SettingsIcon, Smartphone, ScanLine, Wallet, Plus, RotateCw, LayoutGrid, Star, QrCode } from 'lucide-react';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<Tab>(Tab.CHATS);
@@ -238,53 +238,88 @@ export function App() {
              <div className="p-4 text-center text-gray-400 text-sm">发现页功能暂未对接后端</div>
            </div>
         );
-      case Tab.ME:
+case Tab.ME:
         return (
           <div className="flex flex-col bg-[#EDEDED] min-h-full pb-safe-bottom">
-             {/* User Info Card */}
-             <div 
-               className="bg-white pt-10 pb-8 px-6 mb-2 flex items-center cursor-pointer active:bg-[#FAFAFA]"
-             >
-                <img 
-                  src={currentUser.avatar} 
-                  className="w-16 h-16 rounded-[8px] mr-4 bg-gray-200" 
-                  onClick={() => setShowPersonalInfo(true)}
-                />
-                <div className="flex-1">
-                   <div className="flex items-center justify-between" onClick={() => setShowPersonalInfo(true)}>
-                      <h2 className="text-[20px] font-semibold text-[#191919] mb-1.5">{currentUser.name}</h2>
-                   </div>
+             {/* Top Profile Card (Template Style) */}
+             <div className="bg-white px-6 pt-12 pb-10 mb-2" onClick={() => setShowPersonalInfo(true)}>
+               <div className="flex items-start">
+                 {/* Avatar */}
+                 <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                   <img 
+                     src={currentUser.avatar} 
+                     alt="Avatar" 
+                     className="w-full h-full object-cover"
+                   />
+                 </div>
+                 
+                 {/* Info */}
+                 <div className="ml-5 flex-grow">
                    <div className="flex items-center justify-between">
-                      <div className="flex flex-col" onClick={() => setShowPersonalInfo(true)}>
-                         <span className="text-[15px] text-gray-500 mb-2">ID：{currentUser.id.slice(0,8)}</span>
-                         <div className="flex items-center gap-1 border border-gray-300 rounded-[14px] px-2 py-0.5 w-fit">
-                            <span className="text-[12px] text-gray-500">{currentUser.region || 'Client'}</span>
-                         </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <QrCodeIcon size={18} className="text-gray-400" />
-                        <ChevronRight size={16} className="text-gray-400" />
-                      </div>
+                     <h1 className="text-2xl font-bold text-[#191919]">{currentUser.name}</h1>
+                     <div className="flex items-center space-x-4 text-[#888]">
+                       <QrCodeIcon size={18} className="text-gray-400" />
+                       <ChevronRight className="w-5 h-5" />
+                     </div>
                    </div>
-                </div>
+                   <div className="flex items-center justify-between mt-1">
+                      <p className="text-[#888] text-[15px]">微信号：{currentUser.id}</p>
+                   </div>
+                   
+                   {/* Status Buttons */}
+                   <div className="mt-4 flex items-center space-x-3">
+                     <button className="flex items-center space-x-1 px-3 py-1 rounded-full border border-[#e5e5e5] text-[#191919] text-[13px] active:bg-gray-50 transition-colors" onClick={(e) => { e.stopPropagation(); setShowStatus(true); }}>
+                       <Plus className="w-3.5 h-3.5" />
+                       <span>状态</span>
+                     </button>
+                     <button className="p-1 rounded-full border border-[#e5e5e5] text-[#888] active:bg-gray-50 transition-colors" onClick={(e) => e.stopPropagation()}>
+                       <RotateCw className="w-3.5 h-3.5" />
+                     </button>
+                   </div>
+                 </div>
+               </div>
              </div>
 
-             {/* Services */}
-             <div className="bg-white mb-2 border-y border-gray-200/50">
-                <MeItem icon={<div className="w-6 h-6 bg-[#07C160] rounded-sm flex items-center justify-center"><Wallet size={16} color="white" /></div>} label="服务" />
+             {/* Services Section */}
+             <div className="mb-2">
+               <MenuItem 
+                 icon={<LayoutGrid className="w-6 h-6 text-[#07c160]" />} 
+                 label="服务" 
+                 showDivider={false} 
+               />
              </div>
 
-             {/* Collection, Moments, Cards, Stickers */}
-             <div className="bg-white mb-2 border-y border-gray-200/50">
-                <MeItem icon={<Box size={22} color="#FA9D3B" />} label="收藏" onClick={() => setShowCollections(true)} />
-                <MeItem icon={<Image size={22} color="#2782D7" />} label="朋友圈" onClick={() => setShowMoments(true)} />
-                <MeItem icon={<CreditCard size={22} color="#2782D7" />} label="卡包" />
-                <MeItem icon={<Smile size={22} color="#FA9D3B" />} label="表情" />
+             {/* Main Options Section */}
+             <div className="mb-2">
+               <MenuItem 
+                 icon={<Star className="w-6 h-6 text-[#ffbe00]" />} 
+                 label="收藏" 
+                 onClick={() => setShowCollections(true)}
+               />
+               <MenuItem 
+                 icon={<Image className="w-6 h-6 text-[#10adff]" />} 
+                 label="朋友圈" 
+                 onClick={() => setShowMoments(true)}
+               />
+               <MenuItem 
+                 icon={<Wallet className="w-6 h-6 text-[#10adff]" />} 
+                 label="卡包" 
+               />
+               <MenuItem 
+                 icon={<Smile className="w-6 h-6 text-[#ffbe00]" />} 
+                 label="表情" 
+                 showDivider={false} 
+               />
              </div>
 
-             {/* Settings */}
-             <div className="bg-white mb-8 border-y border-gray-200/50">
-                <MeItem icon={<SettingsIcon size={22} color="#2782D7" />} label="设置" onClick={() => setShowSettings(true)} />
+             {/* Settings Section */}
+             <div className="mb-2">
+               <MenuItem 
+                 icon={<SettingsIcon className="w-6 h-6 text-[#10adff]" />} 
+                 label="设置" 
+                 showDivider={false} 
+                 onClick={() => setShowSettings(true)}
+               />
              </div>
           </div>
         );
@@ -492,3 +527,26 @@ const MeItem: React.FC<{ icon: React.ReactNode, label: string, onClick?: () => v
 const QrCodeIcon = ({size, className}: {size: number, className: string}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
 );
+
+// --- New Me Page Components ---
+
+interface MenuItemProps {
+  icon: React.ReactNode;
+  label: string;
+  showDivider?: boolean;
+  onClick?: () => void;
+}
+
+const MenuItem: React.FC<MenuItemProps> = ({ icon, label, showDivider = true, onClick }) => {
+  return (
+    <div onClick={onClick} className="flex items-center bg-white active:bg-gray-100 transition-colors cursor-pointer px-4 py-3.5">
+      <div className="mr-4 flex-shrink-0 flex items-center justify-center">
+        {icon}
+      </div>
+      <div className={`flex-grow flex items-center justify-between ${showDivider ? 'border-b border-gray-100 pb-3.5 -mb-3.5' : ''}`}>
+        <span className="text-[17px] text-[#191919]">{label}</span>
+        <ChevronRight className="w-5 h-5 text-[#b2b2b2]" />
+      </div>
+    </div>
+  );
+};
