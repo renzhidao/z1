@@ -29,11 +29,11 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange }) => {
               className="flex-1 flex flex-col items-center justify-center space-y-[2px] w-full h-full active:bg-gray-200/30 transition-colors cursor-pointer"
             >
               <div className={`relative transition-transform duration-200 ${isActive ? 'scale-100' : 'scale-100'}`}>
-                <Icon 
+<Icon 
                   size={26} 
                   strokeWidth={isActive ? 2 : 1.5}
-                  className={isActive ? 'text-[#07C160] fill-[#07C160]' : 'text-[#191919]'} 
-                  fill={isActive ? 'currentColor' : 'none'}
+                  className={isActive ? (item.id === Tab.DISCOVER ? 'text-[#07C160]' : 'text-[#07C160] fill-[#07C160]') : 'text-[#191919]'} 
+                  fill={isActive && item.id !== Tab.DISCOVER ? 'currentColor' : 'none'}
                 />
                 {/* Example Badge for Chats tab */}
                 {item.id === Tab.CHATS && (
