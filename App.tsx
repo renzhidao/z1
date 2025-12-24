@@ -241,35 +241,44 @@ export function App() {
 case Tab.ME:
         return (
           <div className="flex flex-col bg-[#EDEDED] min-h-full pb-safe-bottom">
-             {/* User Info Card */}
-             <div 
-               className="bg-white pt-10 pb-8 px-6 mb-2 flex items-center cursor-pointer active:bg-[#FAFAFA]"
-             >
-                <img 
-                  src={currentUser.avatar} 
-                  className="w-16 h-16 rounded-[8px] mr-4 bg-gray-200" 
-                  onClick={() => setShowPersonalInfo(true)}
-                />
-                <div className="flex-1">
-                   <div className="flex items-center justify-between" onClick={() => setShowPersonalInfo(true)}>
-                      <h2 className="text-[20px] font-semibold text-[#191919] mb-1.5">{currentUser.name}</h2>
+{/* User Info Card (Template Style) */}
+             <div className="bg-white px-6 pt-12 pb-8 mb-2 active:bg-gray-50" onClick={() => setShowPersonalInfo(true)}>
+               <div className="flex items-start">
+                 {/* Avatar */}
+                 <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0 mr-5">
+                   <img 
+                     src={currentUser.avatar} 
+                     alt="Avatar" 
+                     className="w-full h-full object-cover"
+                   />
+                 </div>
+                 
+                 {/* Info Column */}
+                 <div className="flex-grow pt-0.5">
+                   <div className="flex items-start justify-between">
+                     {/* Name */}
+                     <h2 className="text-[22px] font-bold text-[#191919] leading-tight mb-1">{currentUser.name}</h2>
+                     
+                     {/* QR & Arrow */}
+                     <div className="flex items-center gap-4 mt-1">
+                       <QrCodeIcon size={18} className="text-gray-400" />
+                       <ChevronRight size={16} className="text-gray-400" />
+                     </div>
                    </div>
-                   <div className="flex items-center justify-between">
-                      <div className="flex flex-col" onClick={() => setShowPersonalInfo(true)}>
-                         <span className="text-[15px] text-gray-500 mb-2">微信号：{currentUser.id}</span>
-                         <button 
-                           onClick={(e) => { e.stopPropagation(); setShowStatus(true); }}
-                           className="flex items-center gap-1 border border-gray-300 rounded-[14px] px-2 py-0.5 w-fit"
-                         >
-                            <span className="text-[12px] text-gray-500">+ 状态</span>
-                         </button>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <QrCodeIcon size={18} className="text-gray-400" />
-                        <ChevronRight size={16} className="text-gray-400" />
-                      </div>
-                   </div>
-                </div>
+                   
+                   {/* WeChat ID */}
+                   <p className="text-[#191919] text-[15px] mb-3">微信号：{currentUser.id}</p>
+                   
+                   {/* Status Button */}
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); setShowStatus(true); }}
+                     className="flex items-center space-x-1 px-3 py-1 rounded-full border border-[#e5e5e5] text-[#191919] text-[13px] active:bg-gray-100 transition-colors w-fit"
+                   >
+                     <Plus className="w-3.5 h-3.5 text-gray-500" />
+                     <span className="text-gray-600">状态</span>
+                   </button>
+                 </div>
+               </div>
              </div>
 
              {/* Services */}
