@@ -883,8 +883,10 @@ const audioRef = useRef<HTMLAudioElement | null>(null);
   const cancelRecordRef = useRef<boolean>(false);
   const recordReqIdRef = useRef<number>(0);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (instant = false) => {
+    if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth' });
+    }
   };
 
   // 修复虚拟路径（/core/ 前缀）
@@ -1042,7 +1044,8 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
 
         // 3. 提交渲染
         setMessages(processed);
-        setTimeout(scrollToBottom, 100);
+        // 初次/批量加载使用瞬间跳转，拒绝刷屏
+        setTimeout(() => scrollToBottom(true), 50);
 
         // 3.5 预热最近媒体为 blob（退出重进首屏即显示）
         try {
@@ -1145,7 +1148,8 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
           
           return next;
         });
-        setTimeout(scrollToBottom, 100);
+        // 新消息到达，平滑滚动
+        setTimeout(() => scrollToBottom(false), 100);
       } catch (e) { console.error('监听错误', e); }
     };
 
@@ -1796,7 +1800,7 @@ const handleSendText = async () => {
                                             <div className="absolute inset-0 bg-black/10 rounded-[4px] z-10 pointer-events-none animate-in fade-in duration-200" />
                                           )}
 
-                                          <span className="text-left relative z-0">{msg.text}</span>
+<span className="text-left relative z-0 whitespace-pre-wrap break-all">{msg.text}</span>
                                         </div>
                   )}
                 </div>
