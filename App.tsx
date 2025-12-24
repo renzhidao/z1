@@ -260,12 +260,17 @@ case Tab.ME:
                      <h1 className="text-[28px] font-bold text-[#191919] leading-tight tracking-wide">{currentUser.name}</h1>
                    </div>
 
-                   {/* Row 2: ID + QR + Arrow (Horizontal Align) */}
+{/* Row 2: ID + QR + Arrow (Horizontal Align) */}
                    <div className="flex items-center justify-between w-full mt-1.5">
-                      <p className="text-[#888] text-[17px] tracking-wide">微信号：{currentUser.id}</p>
+                      {/* Left: WeChat ID */}
+                      <p className="text-[#888] text-[17px] tracking-wide truncate mr-2">微信号：{currentUser.id}</p>
                       
-                      <div className="flex items-center gap-5 mr-1">
-                         <QrCodeIcon size={22} className="text-gray-500" />
+{/* Right: QR Code (Top) + Arrow (Bottom) - Vertical Column */}
+                      <div className="flex flex-col items-center gap-1 flex-shrink-0 ml-2">
+                         {/* QR Code as a potential button */}
+                         <div onClick={(e) => { e.stopPropagation(); setShowQRCode(true); }} className="active:opacity-70 transition-opacity cursor-pointer">
+                            <QrCodeIcon size={22} className="text-gray-500" />
+                         </div>
                          <ChevronRight className="w-6 h-6 text-[#b2b2b2]" />
                       </div>
                    </div>
