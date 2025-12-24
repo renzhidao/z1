@@ -1320,7 +1320,7 @@ const handleSendText = async () => {
     // 只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META（对齐旧前端）
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
-
+    else if (file.type.startsWith('video/')) kind = 'video';
     if (window.protocol) {
       window.protocol.sendMsg(null, kind, {
         fileObj: file,
@@ -1604,11 +1604,9 @@ const handleSendText = async () => {
             (msg.kind === 'image' ||
              (typeof fileType === 'string' && fileType.startsWith('image/')) ||
              /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
-             urlIsImage ||
-             (isVirtual && !isVideo)); // 兜底
-
+             urlIsImage);
           const isFile =
-            msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage && !isVoice;
+            (msg.kind === 'SMART_FILE_UI' || msg.kind === 'file') && !isVideo && !isImage && !isVoice;
 
 
 
