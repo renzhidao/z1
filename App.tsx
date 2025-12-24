@@ -241,11 +241,11 @@ export function App() {
 case Tab.ME:
         return (
           <div className="flex flex-col bg-[#EDEDED] min-h-full pb-safe-bottom">
-             {/* Top Profile Card (Template Style) */}
-             <div className="bg-white px-6 pt-12 pb-10 mb-2" onClick={() => setShowPersonalInfo(true)}>
+             {/* Top Profile Card (Larger & Restructured) */}
+             <div className="bg-white px-6 pt-16 pb-12 mb-3" onClick={() => setShowPersonalInfo(true)}>
                <div className="flex items-start">
-                 {/* Avatar */}
-                 <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                 {/* Avatar (Larger) */}
+                 <div className="w-20 h-20 rounded-xl overflow-hidden bg-gray-200 flex-shrink-0 shadow-sm border border-gray-100">
                    <img 
                      src={currentUser.avatar} 
                      alt="Avatar" 
@@ -254,26 +254,30 @@ case Tab.ME:
                  </div>
                  
                  {/* Info */}
-                 <div className="ml-5 flex-grow">
-                   <div className="flex items-center justify-between">
-                     <h1 className="text-2xl font-bold text-[#191919]">{currentUser.name}</h1>
-                     <div className="flex items-center space-x-4 text-[#888]">
-                       <QrCodeIcon size={18} className="text-gray-400" />
-                       <ChevronRight className="w-5 h-5" />
-                     </div>
+                 <div className="ml-6 flex-grow flex flex-col justify-center min-h-[80px]">
+                   {/* Row 1: Name */}
+                   <div className="flex items-center mb-1">
+                     <h1 className="text-[28px] font-bold text-[#191919] leading-tight tracking-wide">{currentUser.name}</h1>
                    </div>
-                   <div className="flex items-center justify-between mt-1">
-                      <p className="text-[#888] text-[15px]">微信号：{currentUser.id}</p>
+
+                   {/* Row 2: ID + QR + Arrow (Horizontal Align) */}
+                   <div className="flex items-center justify-between w-full mt-1.5">
+                      <p className="text-[#888] text-[17px] tracking-wide">微信号：{currentUser.id}</p>
+                      
+                      <div className="flex items-center gap-5 mr-1">
+                         <QrCodeIcon size={22} className="text-gray-500" />
+                         <ChevronRight className="w-6 h-6 text-[#b2b2b2]" />
+                      </div>
                    </div>
                    
-                   {/* Status Buttons */}
-                   <div className="mt-4 flex items-center space-x-3">
-                     <button className="flex items-center space-x-1 px-3 py-1 rounded-full border border-[#e5e5e5] text-[#191919] text-[13px] active:bg-gray-50 transition-colors" onClick={(e) => { e.stopPropagation(); setShowStatus(true); }}>
-                       <Plus className="w-3.5 h-3.5" />
+                   {/* Status Buttons (Larger) */}
+                   <div className="mt-5 flex items-center gap-3">
+                     <button className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-[#e5e5e5] text-[#191919] text-[15px] active:bg-gray-50 transition-colors" onClick={(e) => { e.stopPropagation(); setShowStatus(true); }}>
+                       <Plus className="w-4 h-4 text-gray-600" />
                        <span>状态</span>
                      </button>
-                     <button className="p-1 rounded-full border border-[#e5e5e5] text-[#888] active:bg-gray-50 transition-colors" onClick={(e) => e.stopPropagation()}>
-                       <RotateCw className="w-3.5 h-3.5" />
+                     <button className="w-9 h-9 flex items-center justify-center rounded-full border border-[#e5e5e5] text-[#888] active:bg-gray-50 transition-colors" onClick={(e) => e.stopPropagation()}>
+                       <RotateCw className="w-4 h-4" />
                      </button>
                    </div>
                  </div>
@@ -281,41 +285,41 @@ case Tab.ME:
              </div>
 
              {/* Services Section */}
-             <div className="mb-2">
+             <div className="mb-3">
                <MenuItem 
-                 icon={<LayoutGrid className="w-6 h-6 text-[#07c160]" />} 
+                 icon={<LayoutGrid className="w-7 h-7 text-[#07c160]" />} 
                  label="服务" 
                  showDivider={false} 
                />
              </div>
 
              {/* Main Options Section */}
-             <div className="mb-2">
+             <div className="mb-3">
                <MenuItem 
-                 icon={<Star className="w-6 h-6 text-[#ffbe00]" />} 
+                 icon={<Star className="w-7 h-7 text-[#ffbe00]" />} 
                  label="收藏" 
                  onClick={() => setShowCollections(true)}
                />
                <MenuItem 
-                 icon={<Image className="w-6 h-6 text-[#10adff]" />} 
+                 icon={<Image className="w-7 h-7 text-[#10adff]" />} 
                  label="朋友圈" 
                  onClick={() => setShowMoments(true)}
                />
                <MenuItem 
-                 icon={<Wallet className="w-6 h-6 text-[#10adff]" />} 
+                 icon={<Wallet className="w-7 h-7 text-[#10adff]" />} 
                  label="卡包" 
                />
                <MenuItem 
-                 icon={<Smile className="w-6 h-6 text-[#ffbe00]" />} 
+                 icon={<Smile className="w-7 h-7 text-[#ffbe00]" />} 
                  label="表情" 
                  showDivider={false} 
                />
              </div>
 
              {/* Settings Section */}
-             <div className="mb-2">
+             <div className="mb-3">
                <MenuItem 
-                 icon={<SettingsIcon className="w-6 h-6 text-[#10adff]" />} 
+                 icon={<SettingsIcon className="w-7 h-7 text-[#10adff]" />} 
                  label="设置" 
                  showDivider={false} 
                  onClick={() => setShowSettings(true)}
@@ -539,13 +543,14 @@ interface MenuItemProps {
 
 const MenuItem: React.FC<MenuItemProps> = ({ icon, label, showDivider = true, onClick }) => {
   return (
-    <div onClick={onClick} className="flex items-center bg-white active:bg-gray-100 transition-colors cursor-pointer px-4 py-3.5">
-      <div className="mr-4 flex-shrink-0 flex items-center justify-center">
+    <div onClick={onClick} className="flex items-center bg-white active:bg-gray-100 transition-colors cursor-pointer px-6 py-5">
+      <div className="mr-5 flex-shrink-0 flex items-center justify-center">
+        {/* Icon 容器 */}
         {icon}
       </div>
-      <div className={`flex-grow flex items-center justify-between ${showDivider ? 'border-b border-gray-100 pb-3.5 -mb-3.5' : ''}`}>
-        <span className="text-[17px] text-[#191919]">{label}</span>
-        <ChevronRight className="w-5 h-5 text-[#b2b2b2]" />
+      <div className={`flex-grow flex items-center justify-between ${showDivider ? 'border-b border-gray-100 pb-5 -mb-5' : ''}`}>
+        <span className="text-[19px] text-[#191919] font-medium">{label}</span>
+        <ChevronRight className="w-6 h-6 text-[#b2b2b2]" />
       </div>
     </div>
   );
