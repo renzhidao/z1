@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Chat, Message } from '../types';
 import {
   MoreHorizontal,
@@ -1044,8 +1044,23 @@ if (m.kind === 'image' || m.kind === 'video' || m.kind === 'SMART_FILE_UI') {
 
         // 3. 提交渲染
         setMessages(processed);
-        // 初次/批量加载使用瞬间跳转，拒绝刷屏
-        setTimeout(() => scrollToBottom(true), 50);
+        
+        // [AI优化 v2] 暴力置底：直接操作容器 scrollTop，确保 0 延迟
+        const forceBottom = () => {
+             // 优先操作容器滚动条（最稳且无动画延迟）
+             if (scrollRef.current) {
+                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight + 9999;
+             } 
+             // 备用兜底
+             else if (messagesEndRef.current) {
+                 messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+             }
+        };
+        
+        // 立即执行 + 渲染帧执行 + 延时覆盖图片加载
+        forceBottom();
+        requestAnimationFrame(forceBottom);
+        [50, 100, 300, 600].forEach(t => setTimeout(forceBottom, t));
 
         // 3.5 预热最近媒体为 blob（退出重进首屏即显示）
         try {
@@ -1183,8 +1198,28 @@ useEffect(() => {
   } catch (_) {}
 }, [messages]);
 
-// 媒体预热：进入后批量 ensureLocal 最近媒体，DB 命中后自动切 blob（重进首屏无需手点）
-useEffect(() => {
+// [AI终极修正] 绘制前同步置底，实现"一开始就在底部"的视觉效果
+useLayoutEffect(() => {
+  if (messages.length > 0 && scrollRef.current) {
+      // 1. 同步瞬间置底（用户不可见滚动过程）
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      
+      // 2. 也是为了防止图片加载撑开高度，保留后续的自动校准
+      const keepBottom = () => {
+          if (scrollRef.current) {
+              // 只有当用户没有明显向上滚动查看历史时，才强制吸底
+              // 判定标准：如果在底部 300px 范围内，或者刚进入页面
+              const dist = scrollRef.current.scrollHeight - scrollRef.current.scrollTop - scrollRef.current.clientHeight;
+              if (dist < 300 || dist > 10000) { 
+                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+              }
+          }
+      };
+      // 覆盖图片加载期
+      [50, 150, 300, 500, 800].forEach(t => setTimeout(keepBottom, t));
+  }
+
+  // 2. 媒体预热逻辑
   try {
     if (!Array.isArray(messages) || messages.length === 0) return;
     const picks = messages.slice(Math.max(0, messages.length - 80))
