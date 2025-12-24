@@ -165,22 +165,38 @@ const ImageMessage: React.FC<{
   isMe: boolean;
   onPreview: (url: string) => void;
 }> = ({ src, alt, isMe, onPreview }) => {
+  // --- [优化] 1. 同步尝试命中缓存 (0延迟) ---
+  const initCache = () => {
+    try {
+        if (!src.includes('virtual/file/')) return null;
+        const fid = src.split('virtual/file/')[1]?.split('/')[0];
+        if (fid && (window).__p1_blobUrlCache?.has?.(fid)) {
+            const u = (window).__p1_blobUrlCache.get(fid);
+            if (u && u.startsWith('blob:')) return u;
+        }
+    } catch (_) {}
+    return null;
+  };
+  const cachedUrl = initCache();
+
+  // 如果命中了缓存，直接显示(isLoading=false)，否则显示原始链接并转圈
   const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!cachedUrl); 
   const [retryCount, setRetryCount] = useState(0);
-  // 【修复】直接赋值 src，不留空
-  const [currentSrc, setCurrentSrc] = useState(src);
+  const [currentSrc, setCurrentSrc] = useState(cachedUrl || src);
 
   useEffect(() => {
-    setHasError(false);
-    setIsLoading(true);
-    setRetryCount(0);
+    // 如果已经有缓存链接，就不再重置状态，避免闪烁
+    if (!cachedUrl) {
+        setHasError(false);
+        setIsLoading(true);
+        setRetryCount(0);
+    }
     
     let active = true;
     const isVirtual = src.includes('virtual/file/');
-    const delay = isVirtual ? 600 : 0;
 
-    // 尝试读取本地缓存（秒开优化）
+    // 2. 异步兜底：内存没命中，再去 DB 捞一次 (不阻塞)
     const parseVirtual = (u) => {
         try {
             const m = u.split('virtual/file/')[1];
@@ -191,27 +207,20 @@ const ImageMessage: React.FC<{
     };
     const vf = isVirtual ? parseVirtual(src) : null;
 
-    if (vf && (window).__p1_blobUrlCache?.has?.(vf.fid)) {
-        const u = (window).__p1_blobUrlCache.get(vf.fid);
-        if (u && u.startsWith('blob:')) {
-            setCurrentSrc(u);
-            setIsLoading(false);
-            return;
-        }
-    }
-
-    // 预热逻辑（保留优化，但不阻断流程）
-    if (isVirtual && vf && (window).smartCore?.ensureLocal) {
+    if (isVirtual && vf && (window).smartCore?.ensureLocal && !cachedUrl) {
         try {
             (window).smartCore.ensureLocal(vf.fid, vf.fname).then(u => {
                 if (active && u && u.startsWith('blob:')) {
                     setCurrentSrc(u);
                     setIsLoading(false);
+                    // 写入内存缓存
+                    try { (window).__p1_blobUrlCache = (window).__p1_blobUrlCache || new Map(); (window).__p1_blobUrlCache.set(vf.fid, u); } catch(_) {}
                 }
             }).catch(() => {});
         } catch (_) {}
     }
 
+    // 3. 监听 ready 事件 (补漏)
     const onReady = (e) => {
         try {
             if (e?.detail?.fileId === vf?.fid && active) {
@@ -225,26 +234,25 @@ const ImageMessage: React.FC<{
     };
     try { window.addEventListener('p1-file-ready', onReady); } catch (_) {}
 
-    // 【修复】核心定时器：无条件刷新 src
+    // 4. 强制刷新定时器 (去除了 delay，立即执行)
     const t1 = setTimeout(() => {
-        if (active) setCurrentSrc(src);
-    }, delay);
+        if (active && !cachedUrl) setCurrentSrc(src);
+    }, 10);
 
-    // 【修复】超时看门狗：强制停止 Loading
+    // 5. 超时兜底
     const t2 = setTimeout(() => {
-        if (active) setIsLoading(false);
-    }, 5000 + delay);
+        if (active && isLoading) setIsLoading(false); // 超时仅结束loading，保留当前图片(可能是原始链接)
+    }, 5000);
 
     return () => { 
         active = false; 
         try { window.removeEventListener('p1-file-ready', onReady); } catch (_) {}
         clearTimeout(t1); clearTimeout(t2); 
     };
-  }, [src]);
+  }, [src]); // cachedUrl 不放入依赖，只在挂载时生效
 
   const handleError = (e: any) => {
-    console.error('ImageErr:', currentSrc);
-    // 【修复】简单重试逻辑
+    // 简单重试逻辑
     if (retryCount < 2) {
         setRetryCount(c => c + 1);
         setTimeout(() => {
@@ -1676,6 +1684,7 @@ const handleSendText = async () => {
              (isVirtual && msg.kind !== 'file' && msg.kind !== 'SMART_FILE_UI')); // 恢复兜底，但排除明确的文件类型
 
           const isFile =
+            (msg.kind === 'file' || msg.kind === 'SMART_FILE_UI') &&
             !isVideo && !isImage && !isVoice && !isAudio;
 
 
