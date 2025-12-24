@@ -1354,58 +1354,25 @@ const handleSendText = async () => {
   };
 
   const handleMessageTouchStart = (e: React.TouchEvent, msg: Message) => {
-        if (msg.kind === 'voice') return;
-        // 获取触发长按的目标元素（消息气泡容器）
-        const target = e.currentTarget as HTMLElement;
+      if (msg.kind === 'voice') return;
+      const touch = e.touches[0];
+      const { clientX, clientY } = touch;
+      timerRef.current = setTimeout(() => {
+        let menuY = clientY - 140;
+        if (menuY < 60) menuY = clientY + 20;
       
-        timerRef.current = setTimeout(() => {
-          // 设置选中高亮
-          setSelectedMsgId(msg.id);
+        // 设置选中高亮
+        setSelectedMsgId(msg.id);
       
-          // 获取气泡的几何位置
-          const rect = target.getBoundingClientRect();
-        
-          // 我们利用 x 存储气泡中心 X，y 存储气泡顶部 Y，并在 message 对象中临时携带高度信息(hack)或在 state 中扩展
-          // 这里为了最小改动，我们把 extraInfo 存入 state 的扩展字段，但由于 TS 限制，我们复用 x/y
-          // x = 气泡中心 X
-          // y = 气泡顶部 Y
-          // 气泡高度 = rect.height (我们需要这个来决定是否翻转到底部)
-        
-          // 更新: 为了传递 height，我们临时将其挂载到 msgContextMenu 的一个新属性上(需要修改 state 定义)，
-          // 或者简单点：y 存 top, x 存 center. height 我们在渲染时拿不到...
-          // 方案 B: 直接在 state 中存 rect 属性。需要改 state 定义。
-          // 方案 C (最简): y 存 top. 在渲染时默认在 top 上方。如果 top 太小，则 y + height... 
-          // 鉴于无法修改类型定义而不报错，我们把 height 编码进 y ? 不行。
-          // 我们用一种取巧的方式：
-          // x: rect.left + rect.width / 2 (中心)
-          // y: rect.top (顶部)
-          // 我们把 height 存入 state 的 hidden 字段? 不行。
-        
-          // 决定：既然要完美，就得知道 height。我们在 x 中存 center，在 y 中存 top。
-          // 对于“下方显示”的判断，我们如果不知道 height，就只能默认上方。
-          // 除非... 我们把 rect 对象临时 cast 成 message 的一部分？不安全。
-        
-          // 让我们修改 state 定义吧。这才是正道。
-          // 既然不能轻易改 interface，那我们就用原来的 x/y。
-          // 但是对于长消息（高度大），如果必须显示在下方，我们需要 top + height。
-          // 算了，绝大多数情况显示在上方即可。如果 top < 160，我们显示在 rect.bottom。
-          // 我们可以把 bottom 也传进去。
-          // 让 x = center, y = top. 
-          // 我们把 height 临时放在 x 的小数部分？不行。
-        
-          // 既然是 JS 环境，我们可以直接存额外属性到 state 对象里，React 不会拦截多余属性。
-          setMsgContextMenu({
-            visible: true,
-            x: rect.left + rect.width / 2, 
-            y: rect.top,
-            // @ts-ignore 用于存高度
-            height: rect.height,
-            message: msg,
-          });
-        
-          if (navigator.vibrate) navigator.vibrate(50);
-        }, 500);
-      };
+        setMsgContextMenu({
+          visible: true,
+          x: Math.min(Math.max(clientX - 150, 10), window.innerWidth - 310),
+          y: menuY,
+          message: msg,
+        });
+        if (navigator.vibrate) navigator.vibrate(50);
+      }, 500);
+    };
   const handleMessageTouchEnd = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -1728,86 +1695,40 @@ const handleSendText = async () => {
         })}
         <div ref={messagesEndRef} />
 
-        {msgContextMenu.visible && (() => {
-                  // --- 动态计算菜单位置 (气泡基准 v2 修复版) ---
-                  const MENU_WIDTH = 300;
-                  // 关键修复：菜单实际高度约为 170px (两行图标 + padding)
-                  // 如果估算太小，菜单就会“坐”在气泡上，遮挡内容
-                  const MENU_ACTUAL_HEIGHT = 170; 
-                  const SCREEN_W = window.innerWidth;
-          
-                  // 从 state 中获取气泡几何信息
-                  const bubbleCenterX = msgContextMenu.x;
-                  const bubbleTop = msgContextMenu.y;
-                  // @ts-ignore 读取隐式传递的 height
-                  const bubbleHeight = (msgContextMenu as any).height || 0;
-
-                  // 1. 菜单水平位置：居中于气泡中心，但限制在屏幕内
-                  let menuLeft = bubbleCenterX - MENU_WIDTH / 2;
-                  if (menuLeft < 10) menuLeft = 10;
-                  if (menuLeft + MENU_WIDTH > SCREEN_W - 10) menuLeft = SCREEN_W - MENU_WIDTH - 10;
-          
-                  // 2. 垂直位置逻辑：
-                  // 默认显示在气泡上方：气泡顶部 - 菜单高度 - 10px 间距
-                  let menuTop = bubbleTop - MENU_ACTUAL_HEIGHT - 10; 
-                  let isUpsideDown = false;
-          
-                  // 触顶检测：如果上方空间不足 (比如小于 180px)，则翻转到气泡下方
-                  if (bubbleTop < MENU_ACTUAL_HEIGHT + 20) {
-                      // 放下方：气泡顶部 + 气泡高度 + 10px 间距
-                      menuTop = bubbleTop + bubbleHeight + 10;
-                      isUpsideDown = true;
-                  }
-
-                  // 3. 尖角位置：相对于菜单框，始终指向气泡中心 X
-                  let arrowLeft = bubbleCenterX - menuLeft;
-                  // 限制尖角不溢出菜单圆角 (左右各保留 12px 安全距离)
-                  arrowLeft = Math.min(Math.max(arrowLeft, 12), MENU_WIDTH - 12);
-
-                  return (
-                    <div className="fixed inset-0 z-[9999]" style={{ pointerEvents: 'none' }}>
-                       {/* 菜单本体 */}
-                       <div
-                          className="absolute flex flex-col items-start pointer-events-auto transition-all duration-200"
-                          style={{ top: menuTop, left: menuLeft }}
-                          onClick={(e) => e.stopPropagation()}
-                          onTouchStart={(e) => e.stopPropagation()}
-                       >
-                         <div className={`bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[${MENU_WIDTH}px] relative`}>
-                            <div className="grid grid-cols-5 gap-y-3 gap-x-1">
-                              <ContextMenuItem icon={<Copy />} label="复制" onClick={() => {
-                                                if (msgContextMenu.message) handleCopy(msgContextMenu.message.text || msgContextMenu.message.txt || '');
-                                              }} />
-                              <ContextMenuItem icon={<Share />} label="转发" />
-                              <ContextMenuItem icon={<FolderHeart />} label="收藏" />
-                              <ContextMenuItem icon={<Trash2 />} label="删除" onClick={() => {
-                                                 if (msgContextMenu.message) {
-                                                   setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
-                                                   setMsgContextMenu(prev => ({ ...prev, visible: false }));
-                                                   setSelectedMsgId(null);
-                                                 }
-                                              }} />
-                              <ContextMenuItem icon={<CheckSquare />} label="多选" />
-                              <ContextMenuItem icon={<MessageSquareQuote />} label="引用" />
-                              <ContextMenuItem icon={<Bell />} label="提醒" />
-                              <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
-                            </div>
-                    
-                            {/* 动态尖角: 始终对准气泡中心 */}
-                            <div 
-                                className="absolute w-3 h-3 bg-[#4C4C4C] rotate-45"
-                                style={{
-                                    left: arrowLeft,
-                                    bottom: isUpsideDown ? 'auto' : '-5px',
-                                    top: isUpsideDown ? '-5px' : 'auto',
-                                    marginLeft: '-6px'
-                                }}
-                            />
-                         </div>
-                       </div>
-                    </div>
-                  );
-                })()}
+        {msgContextMenu.visible && (
+          <div
+            className="fixed z-[9999] flex flex-col items-center"
+            style={{
+              top: msgContextMenu.y,
+              left: '50%',
+              transform: 'translateX(-50%)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <div className="bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[300px]">
+              <div className="grid grid-cols-5 gap-y-3 gap-x-1">
+                <ContextMenuItem icon={<Copy />} label="复制" onClick={() => {
+                                  if (msgContextMenu.message) handleCopy(msgContextMenu.message.text || msgContextMenu.message.txt || '');
+                                }} />
+                <ContextMenuItem icon={<Share />} label="转发" />
+                <ContextMenuItem icon={<FolderHeart />} label="收藏" />
+                <ContextMenuItem icon={<Trash2 />} label="删除" onClick={() => {
+                                   if (msgContextMenu.message) {
+                                     setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
+                                     setMsgContextMenu(prev => ({ ...prev, visible: false }));
+                                     setSelectedMsgId(null);
+                                   }
+                                }} />
+                <ContextMenuItem icon={<CheckSquare />} label="多选" />
+                <ContextMenuItem icon={<MessageSquareQuote />} label="引用" />
+                <ContextMenuItem icon={<Bell />} label="提醒" />
+                <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
+              </div>
+              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#4C4C4C] rotate-45"></div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div
