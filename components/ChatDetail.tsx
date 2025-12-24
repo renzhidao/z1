@@ -277,33 +277,24 @@ const t1 = setTimeout(() => {
   const handleError = (e: any) => {
     console.error('❌ [ImageMessage] 加载失败:', currentSrc);
     // 针对虚拟文件路径，最多自动重试 3 次
-if (currentSrc.includes('virtual/file/') && retryCount < 3) {
+if (retryCount < 2) {
       const nextRetry = retryCount + 1;
       setRetryCount(nextRetry);
       setTimeout(() => {
         try {
           const base = src.split('#')[0];
+          // 加上时间戳防缓存
           const withBust = base.includes('?') 
             ? `${base}&r=${Date.now()}` 
             : `${base}?r=${Date.now()}`;
           console.log(`🔄 [ImageMessage] 自动重试第 ${nextRetry} 次:`, withBust);
           setCurrentSrc(withBust);
         } catch (_) {}
-      }, 1000); // 稍微延长重试间隔到 1s
-} else {
-  if (String(currentSrc || '').includes('virtual/file/')) {
-    // 虚拟直链：不弹错误，保持加载态，等待本地 blob 就绪
-    setIsLoading(true);
-} else {
-  if (String(currentSrc || '').includes('virtual/file/')) {
-    // 虚拟直链：不弹错误，保持加载态，等待本地 blob 就绪
-    setIsLoading(true);
-  } else {
-    setHasError(true);
-    setIsLoading(false);
-  }
-}
-}
+      }, 500); 
+    } else {
+      setHasError(true);
+      setIsLoading(false);
+    }
   };
 
   if (hasError) {
