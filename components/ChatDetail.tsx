@@ -1729,9 +1729,11 @@ const handleSendText = async () => {
         <div ref={messagesEndRef} />
 
         {msgContextMenu.visible && (() => {
-                  // --- 动态计算菜单位置 (v3 终极修复：自适应紧贴气泡) ---
+                  // --- 动态计算菜单位置 (气泡基准 v2 修复版) ---
                   const MENU_WIDTH = 300;
-                  const GAP = 8; // 菜单与气泡的间距
+                  // 关键修复：菜单实际高度约为 170px (两行图标 + padding)
+                  // 如果估算太小，菜单就会“坐”在气泡上，遮挡内容
+                  const MENU_ACTUAL_HEIGHT = 170; 
                   const SCREEN_W = window.innerWidth;
           
                   // 从 state 中获取气泡几何信息
@@ -1745,18 +1747,16 @@ const handleSendText = async () => {
                   if (menuLeft < 10) menuLeft = 10;
                   if (menuLeft + MENU_WIDTH > SCREEN_W - 10) menuLeft = SCREEN_W - MENU_WIDTH - 10;
           
-                  // 2. 垂直位置：利用 transform 实现底部对齐
-                  // 默认情况：菜单放置在气泡顶部上方 GAP 处，并向上偏移自身 100% 高度
-                  let menuTop = bubbleTop - GAP;
+                  // 2. 垂直位置逻辑：
+                  // 默认显示在气泡上方：气泡顶部 - 菜单高度 - 10px 间距
+                  let menuTop = bubbleTop - MENU_ACTUAL_HEIGHT - 10; 
                   let isUpsideDown = false;
-                  let transformY = 'translateY(-100%)'; 
           
-                  // 触顶检测：如果气泡距离屏幕顶部 < 180px (预估菜单高度)，则翻转到气泡下方
-                  if (bubbleTop < 180) {
-                      // 放下方：气泡顶部 + 气泡高度 + 间距
-                      menuTop = bubbleTop + bubbleHeight + GAP;
+                  // 触顶检测：如果上方空间不足 (比如小于 180px)，则翻转到气泡下方
+                  if (bubbleTop < MENU_ACTUAL_HEIGHT + 20) {
+                      // 放下方：气泡顶部 + 气泡高度 + 10px 间距
+                      menuTop = bubbleTop + bubbleHeight + 10;
                       isUpsideDown = true;
-                      transformY = 'translateY(0)'; // 不需要偏移
                   }
 
                   // 3. 尖角位置：相对于菜单框，始终指向气泡中心 X
@@ -1769,11 +1769,7 @@ const handleSendText = async () => {
                        {/* 菜单本体 */}
                        <div
                           className="absolute flex flex-col items-start pointer-events-auto transition-all duration-200"
-                          style={{ 
-                            top: menuTop, 
-                            left: menuLeft,
-                            transform: transformY 
-                          }}
+                          style={{ top: menuTop, left: menuLeft }}
                           onClick={(e) => e.stopPropagation()}
                           onTouchStart={(e) => e.stopPropagation()}
                        >
@@ -1797,7 +1793,7 @@ const handleSendText = async () => {
                               <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
                             </div>
                     
-                            {/* 动态尖角: 始终紧贴气泡边缘 */}
+                            {/* 动态尖角: 始终对准气泡中心 */}
                             <div 
                                 className="absolute w-3 h-3 bg-[#4C4C4C] rotate-45"
                                 style={{
