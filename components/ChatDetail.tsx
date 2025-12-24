@@ -181,7 +181,7 @@ const ImageMessage: React.FC<{
 
   // 如果命中了缓存，直接显示(isLoading=false)，否则显示原始链接并转圈
   const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(!cachedUrl); 
+const [isLoading, setIsLoading] = useState(false); // 强制关闭初始Loading，直接显示图片
   const [retryCount, setRetryCount] = useState(0);
   const [currentSrc, setCurrentSrc] = useState(cachedUrl || src);
 
@@ -319,9 +319,7 @@ const ImageMessage: React.FC<{
     <div className="relative inline-block min-h-[50px] min-w-[50px]">
       <img
         src={currentSrc}
-        className={`rounded-[6px] border border-gray-200 max-w-[200px] bg-white object-cover transition-opacity duration-300 ${
-          isLoading ? 'opacity-0' : 'opacity-100'
-        }`}
+className="rounded-[6px] border border-gray-200 max-w-[200px] bg-white object-cover min-h-[50px]"
         alt={alt}
         onClick={(e) => {
           e.stopPropagation();
@@ -333,11 +331,7 @@ const ImageMessage: React.FC<{
         }}
         onError={(e) => handleError(e)}
       />
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-[6px]">
-          <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
-        </div>
-      )}
+{/* Loading Spinner Removed for Instant View */}
     </div>
   );
 };
