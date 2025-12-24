@@ -1466,9 +1466,12 @@ const handleSendText = async () => {
           setSelectedMsgId(msg.id);
           const rect = target.getBoundingClientRect();
           
-          // [AI修复] 对于长文本（高度>屏幕40%），使用触摸点Y坐标；否则使用气泡顶部
+          // [AI修复] 对于长文本（高度>屏幕40%），精准定位到被按住那行文字的上方
           const isLongText = rect.height > window.innerHeight * 0.4;
-          const menuY = isLongText ? touchY : rect.top;
+          // 获取触摸点对应的那行文字的精确位置
+          const range = document.caretRangeFromPoint(touchX, touchY);
+          const lineRect = range?.getBoundingClientRect();
+          const menuY = isLongText ? (lineRect?.top || touchY) : rect.top;
           
           setMsgContextMenu({
             visible: true,
