@@ -482,7 +482,7 @@ case Tab.ME:
 
 // Sub-components
 const DiscoverItem: React.FC<{ icon: React.ReactNode, label: string, onClick?: () => void }> = ({ icon, label, onClick }) => (
-  <div onClick={onClick} className="flex items-center px-4 py-3 border-b border-gray-100 last:border-0 active:bg-[#DEDEDE] cursor-pointer">
+  <div onClick={onClick} className="flex items-center px-4 py-3 border-b border-gray-100 last:border-0 relative active:z-10 active:outline active:outline-[1.5px] active:outline-[#07C160] transition-none cursor-pointer">
      <div className="mr-3">{icon}</div>
      <div className="flex-1 flex items-center justify-between">
         <span className="text-[17px] text-[#191919]">{label}</span>
