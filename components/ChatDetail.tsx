@@ -1408,7 +1408,8 @@ const handleSendText = async () => {
   const handleFileAction = (type: 'image' | 'video' | 'file') => {
     if (!fileInputRef.current) return;
     fileInputRef.current.value = '';
-    if (type === 'image') fileInputRef.current.accept = 'image/*';
+    // [AI修改] 照片按钮改为允许选择所有文件（兼容用户习惯，选中图片会自动识别为图片发送）
+    if (type === 'image') fileInputRef.current.accept = '*/*';
     else if (type === 'video') fileInputRef.current.accept = 'video/*';
     else fileInputRef.current.accept = '*/*';
     fileInputRef.current.click();
