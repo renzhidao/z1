@@ -727,125 +727,8 @@ const VideoMessage: React.FC<{ src: string; fileName: string; isMe: boolean; pos
 
 };
 
-// --- 辅助组件：音频消息播放器 ---
-const AudioMessage: React.FC<{
-  src: string;
-  fileName: string;
-  isMe: boolean;
-  fileId?: string;
-}> = ({ src, fileName, isMe, fileId }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  
-  const handleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (fileId && (window as any).smartCore) {
-      (window as any).smartCore.download(fileId, fileName);
-    } else {
-      const a = document.createElement('a');
-      a.href = src;
-      a.download = fileName;
-      a.click();
-    }
-  };
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
-
-  const togglePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch(() => {});
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    if (!audioRef.current || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const pct = Math.max(0, Math.min(1, x / rect.width));
-    audioRef.current.currentTime = pct * duration;
-    setProgress(pct * 100);
-  };
-
-  useEffect(() => {
-    const audio = new Audio(src);
-    audioRef.current = audio;
-    audio.onloadedmetadata = () => setDuration(audio.duration || 0);
-    audio.ontimeupdate = () => {
-      setCurrentTime(audio.currentTime);
-      if (audio.duration) setProgress((audio.currentTime / audio.duration) * 100);
-    };
-    audio.onended = () => { setIsPlaying(false); setProgress(0); setCurrentTime(0); };
-    audio.onerror = () => console.error('Audio load error:', src);
-    return () => { audio.pause(); audio.src = ''; };
-  }, [src]);
-
-  const bgColor = isMe ? '#95EC69' : '#FFFFFF';
-
-  return (
-    <div
-      className="rounded-[6px] p-3 shadow-sm min-w-[200px] max-w-[280px] select-none"
-      style={{ backgroundColor: bgColor }}
-    >
-      <div className="flex items-center gap-3">
-        {/* 播放按钮 */}
-        <button
-          onClick={togglePlay}
-          className="w-10 h-10 rounded-full bg-[#07C160] flex items-center justify-center flex-shrink-0 active:opacity-80"
-        >
-          {isPlaying ? (
-            <div className="flex gap-1">
-              <div className="w-1 h-4 bg-white rounded-sm" />
-              <div className="w-1 h-4 bg-white rounded-sm" />
-            </div>
-          ) : (
-            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-l-[10px] border-l-white ml-1" />
-          )}
-        </button>
-        {/* 进度条和信息 */}
-        <div className="flex-1 min-w-0">
-<div className="flex justify-between items-center mb-1.5">
-            <div className="text-[13px] text-[#191919] truncate max-w-[120px]">{fileName || '音频文件'}</div>
-            <button onClick={handleDownload} className="p-1 hover:bg-black/5 rounded-full text-gray-400 active:text-gray-600">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </button>
-          </div>
-          <div
-            className="h-1 bg-black/10 rounded-full cursor-pointer relative"
-            onClick={handleSeek}
-          >
-            <div
-              className="h-full bg-[#07C160] rounded-full transition-all"
-              style={{ width: `${progress}%` }}
-            />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-[#07C160] rounded-full shadow-sm"
-              style={{ left: `calc(${progress}% - 6px)` }}
-            />
-          </div>
-          <div className="flex justify-between text-[11px] text-gray-500 mt-1">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // --- 辅助组件：长按菜单项 ---
+
 const ContextMenuItem: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -1437,6 +1320,7 @@ const handleSendText = async () => {
     // 只调 protocol.sendMsg，让 SmartCore Hook 自动生成 SMART_META（对齐旧前端）
     let kind: any = 'file';
     if (file.type.startsWith('image/')) kind = 'image';
+
     if (window.protocol) {
       window.protocol.sendMsg(null, kind, {
         fileObj: file,
@@ -1470,58 +1354,25 @@ const handleSendText = async () => {
   };
 
   const handleMessageTouchStart = (e: React.TouchEvent, msg: Message) => {
-        if (msg.kind === 'voice') return;
-        // 获取触发长按的目标元素（消息气泡容器）
-        const target = e.currentTarget as HTMLElement;
+      if (msg.kind === 'voice') return;
+      const touch = e.touches[0];
+      const { clientX, clientY } = touch;
+      timerRef.current = setTimeout(() => {
+        let menuY = clientY - 140;
+        if (menuY < 60) menuY = clientY + 20;
       
-        timerRef.current = setTimeout(() => {
-          // 设置选中高亮
-          setSelectedMsgId(msg.id);
+        // 设置选中高亮
+        setSelectedMsgId(msg.id);
       
-          // 获取气泡的几何位置
-          const rect = target.getBoundingClientRect();
-        
-          // 我们利用 x 存储气泡中心 X，y 存储气泡顶部 Y，并在 message 对象中临时携带高度信息(hack)或在 state 中扩展
-          // 这里为了最小改动，我们把 extraInfo 存入 state 的扩展字段，但由于 TS 限制，我们复用 x/y
-          // x = 气泡中心 X
-          // y = 气泡顶部 Y
-          // 气泡高度 = rect.height (我们需要这个来决定是否翻转到底部)
-        
-          // 更新: 为了传递 height，我们临时将其挂载到 msgContextMenu 的一个新属性上(需要修改 state 定义)，
-          // 或者简单点：y 存 top, x 存 center. height 我们在渲染时拿不到...
-          // 方案 B: 直接在 state 中存 rect 属性。需要改 state 定义。
-          // 方案 C (最简): y 存 top. 在渲染时默认在 top 上方。如果 top 太小，则 y + height... 
-          // 鉴于无法修改类型定义而不报错，我们把 height 编码进 y ? 不行。
-          // 我们用一种取巧的方式：
-          // x: rect.left + rect.width / 2 (中心)
-          // y: rect.top (顶部)
-          // 我们把 height 存入 state 的 hidden 字段? 不行。
-        
-          // 决定：既然要完美，就得知道 height。我们在 x 中存 center，在 y 中存 top。
-          // 对于“下方显示”的判断，我们如果不知道 height，就只能默认上方。
-          // 除非... 我们把 rect 对象临时 cast 成 message 的一部分？不安全。
-        
-          // 让我们修改 state 定义吧。这才是正道。
-          // 既然不能轻易改 interface，那我们就用原来的 x/y。
-          // 但是对于长消息（高度大），如果必须显示在下方，我们需要 top + height。
-          // 算了，绝大多数情况显示在上方即可。如果 top < 160，我们显示在 rect.bottom。
-          // 我们可以把 bottom 也传进去。
-          // 让 x = center, y = top. 
-          // 我们把 height 临时放在 x 的小数部分？不行。
-        
-          // 既然是 JS 环境，我们可以直接存额外属性到 state 对象里，React 不会拦截多余属性。
-          setMsgContextMenu({
-            visible: true,
-            x: rect.left + rect.width / 2, 
-            y: rect.top,
-            // @ts-ignore 用于存高度
-            height: rect.height,
-            message: msg,
-          });
-        
-          if (navigator.vibrate) navigator.vibrate(50);
-        }, 500);
-      };
+        setMsgContextMenu({
+          visible: true,
+          x: Math.min(Math.max(clientX - 150, 10), window.innerWidth - 310),
+          y: menuY,
+          message: msg,
+        });
+        if (navigator.vibrate) navigator.vibrate(50);
+      }, 500);
+    };
   const handleMessageTouchEnd = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -1714,25 +1565,17 @@ const handleSendText = async () => {
              /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(fileName || '') ||
              urlIsVideo);
 
-          const isAudio =
-            !isVoice &&
-            !isVideo &&
-            (msg.kind === 'audio' ||
-             (typeof fileType === 'string' && fileType.startsWith('audio/')) ||
-             /\.(mp3|m4a|wav|flac|aac|ogg|wma)$/i.test(fileName || ''));
-
           const isImage =
             !isVoice &&
             !isVideo &&
-            !isAudio &&
             (msg.kind === 'image' ||
              (typeof fileType === 'string' && fileType.startsWith('image/')) ||
              /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(fileName || '') ||
              urlIsImage ||
-             (isVirtual && msg.kind !== 'file' && msg.kind !== 'SMART_FILE_UI')); // 恢复兜底，但排除明确的文件类型
+             (isVirtual && !isVideo)); // 兜底
 
           const isFile =
-            !isVideo && !isImage && !isVoice && !isAudio;
+            msg.kind === 'SMART_FILE_UI' && !isVideo && !isImage && !isVoice;
 
 
 
@@ -1785,13 +1628,6 @@ const handleSendText = async () => {
                       fileName={fileName || 'Video'}
                       isMe={isMe}
                        posterUrl={meta?.poster}
-                    />
-) : isAudio ? (
-<AudioMessage
-                      src={getMediaSrc(msg)}
-                      fileName={fileName || 'Audio'}
-                      isMe={isMe}
-                      fileId={meta?.fileId}
                     />
                   ) : isFile ? (
                     <div
@@ -1859,90 +1695,40 @@ const handleSendText = async () => {
         })}
         <div ref={messagesEndRef} />
 
-        {msgContextMenu.visible && (() => {
-                  // --- 动态计算菜单位置 (v3 终极修复：自适应紧贴气泡) ---
-                  const MENU_WIDTH = 300;
-                  const GAP = 8; // 菜单与气泡的间距
-                  const SCREEN_W = window.innerWidth;
-          
-                  // 从 state 中获取气泡几何信息
-                  const bubbleCenterX = msgContextMenu.x;
-                  const bubbleTop = msgContextMenu.y;
-                  // @ts-ignore 读取隐式传递的 height
-                  const bubbleHeight = (msgContextMenu as any).height || 0;
-
-                  // 1. 菜单水平位置：居中于气泡中心，但限制在屏幕内
-                  let menuLeft = bubbleCenterX - MENU_WIDTH / 2;
-                  if (menuLeft < 10) menuLeft = 10;
-                  if (menuLeft + MENU_WIDTH > SCREEN_W - 10) menuLeft = SCREEN_W - MENU_WIDTH - 10;
-          
-                  // 2. 垂直位置：利用 transform 实现底部对齐
-                  // 默认情况：菜单放置在气泡顶部上方 GAP 处，并向上偏移自身 100% 高度
-                  let menuTop = bubbleTop - GAP;
-                  let isUpsideDown = false;
-                  let transformY = 'translateY(-100%)'; 
-          
-                  // 触顶检测：如果气泡距离屏幕顶部 < 180px (预估菜单高度)，则翻转到气泡下方
-                  if (bubbleTop < 180) {
-                      // 放下方：气泡顶部 + 气泡高度 + 间距
-                      menuTop = bubbleTop + bubbleHeight + GAP;
-                      isUpsideDown = true;
-                      transformY = 'translateY(0)'; // 不需要偏移
-                  }
-
-                  // 3. 尖角位置：相对于菜单框，始终指向气泡中心 X
-                  let arrowLeft = bubbleCenterX - menuLeft;
-                  // 限制尖角不溢出菜单圆角 (左右各保留 12px 安全距离)
-                  arrowLeft = Math.min(Math.max(arrowLeft, 12), MENU_WIDTH - 12);
-
-                  return (
-                    <div className="fixed inset-0 z-[9999]" style={{ pointerEvents: 'none' }}>
-                       {/* 菜单本体 */}
-                       <div
-                          className="absolute flex flex-col items-start pointer-events-auto transition-all duration-200"
-                          style={{ 
-                            top: menuTop, 
-                            left: menuLeft,
-                            transform: transformY 
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          onTouchStart={(e) => e.stopPropagation()}
-                       >
-                         <div className={`bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[${MENU_WIDTH}px] relative`}>
-                            <div className="grid grid-cols-5 gap-y-3 gap-x-1">
-                              <ContextMenuItem icon={<Copy />} label="复制" onClick={() => {
-                                                if (msgContextMenu.message) handleCopy(msgContextMenu.message.text || msgContextMenu.message.txt || '');
-                                              }} />
-                              <ContextMenuItem icon={<Share />} label="转发" />
-                              <ContextMenuItem icon={<FolderHeart />} label="收藏" />
-                              <ContextMenuItem icon={<Trash2 />} label="删除" onClick={() => {
-                                                 if (msgContextMenu.message) {
-                                                   setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
-                                                   setMsgContextMenu(prev => ({ ...prev, visible: false }));
-                                                   setSelectedMsgId(null);
-                                                 }
-                                              }} />
-                              <ContextMenuItem icon={<CheckSquare />} label="多选" />
-                              <ContextMenuItem icon={<MessageSquareQuote />} label="引用" />
-                              <ContextMenuItem icon={<Bell />} label="提醒" />
-                              <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
-                            </div>
-                    
-                            {/* 动态尖角: 始终紧贴气泡边缘 */}
-                            <div 
-                                className="absolute w-3 h-3 bg-[#4C4C4C] rotate-45"
-                                style={{
-                                    left: arrowLeft,
-                                    bottom: isUpsideDown ? 'auto' : '-5px',
-                                    top: isUpsideDown ? '-5px' : 'auto',
-                                    marginLeft: '-6px'
-                                }}
-                            />
-                         </div>
-                       </div>
-                    </div>
-                  );
-                })()}
+        {msgContextMenu.visible && (
+          <div
+            className="fixed z-[9999] flex flex-col items-center"
+            style={{
+              top: msgContextMenu.y,
+              left: '50%',
+              transform: 'translateX(-50%)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <div className="bg-[#4C4C4C] rounded-[8px] p-2 shadow-2xl animate-in zoom-in-95 duration-100 w-[300px]">
+              <div className="grid grid-cols-5 gap-y-3 gap-x-1">
+                <ContextMenuItem icon={<Copy />} label="复制" onClick={() => {
+                                  if (msgContextMenu.message) handleCopy(msgContextMenu.message.text || msgContextMenu.message.txt || '');
+                                }} />
+                <ContextMenuItem icon={<Share />} label="转发" />
+                <ContextMenuItem icon={<FolderHeart />} label="收藏" />
+                <ContextMenuItem icon={<Trash2 />} label="删除" onClick={() => {
+                                   if (msgContextMenu.message) {
+                                     setMessages(prev => prev.filter(m => m.id !== msgContextMenu.message?.id));
+                                     setMsgContextMenu(prev => ({ ...prev, visible: false }));
+                                     setSelectedMsgId(null);
+                                   }
+                                }} />
+                <ContextMenuItem icon={<CheckSquare />} label="多选" />
+                <ContextMenuItem icon={<MessageSquareQuote />} label="引用" />
+                <ContextMenuItem icon={<Bell />} label="提醒" />
+                <ContextMenuItem icon={<SearchIcon />} label="搜一搜" />
+              </div>
+              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#4C4C4C] rotate-45"></div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div
