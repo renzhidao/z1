@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Mic, MicOff, Volume2, VolumeX, Video as VideoIcon, VideoOff, 
-  PhoneOff, Minimize2, RefreshCcw, Plus 
+  PhoneOff, Minimize2, RefreshCcw, Plus, User as UserIcon 
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -246,7 +246,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
               {!hasLocalVideo && (
                 // [关键修改] 去掉文字，只显图标
-                <VideoOff size={!isSwapped ? 22 : 44} />
+                
+<div className={`flex items-center justify-center rounded-full bg-white/20 ${!isSwapped ? 'w-12 h-12' : 'w-24 h-24'}`}>
+  <UserIcon size={!isSwapped ? 24 : 48} className="text-white/80" />
+</div>
+
               )}
            </div>
         </div>
