@@ -30,6 +30,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const [isSwapped, setIsSwapped] = useState(false); 
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [pipPos, setPipPos] = useState({ x: 20, y: 100 });
+  const [pipSize, setPipSize] = useState({ width: 128, height: 192 });
   const [remoteHasVideo, setRemoteHasVideo] = useState(false);
 
   const draggingRef = useRef(false);
@@ -100,9 +101,18 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   }, [isCamOn, isFrontCamera]);
 
   // PiP 位置初始化
+  
+  // PiP 尺寸与位置初始化 (1/3高度 + 保持旧版Top)
   useEffect(() => {
-    if (window.innerWidth) setPipPos({ x: window.innerWidth - 128 - 16, y: 96 });
+    if (typeof window !== 'undefined') {
+      const h = (window.innerHeight - 96) / 3;      // 高度占1/3
+      const w = h * (9 / 16);                // 宽度按 9:16
+      setPipSize({ width: w, height: h });
+      // 位置：靠右 (屏幕宽 - 小窗宽 - 16px边距)，Top保持旧版 96
+      setPipPos({ x: window.innerWidth - w - 16, y: 96 });
+    }
   }, []);
+
 
   // 状态监听
   useEffect(() => {
@@ -177,15 +187,15 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     else if (containerRef.current) {
       const { clientWidth, clientHeight } = containerRef.current;
       setPipPos(prev => ({
-        x: Math.max(12, Math.min(clientWidth - 128 - 12, prev.x)),
-        y: Math.max(80, Math.min(clientHeight - 192 - 200, prev.y))
+        x: Math.max(12, Math.min(clientWidth - pipSize.width - 12, prev.x)),
+        y: Math.max(80, Math.min(clientHeight - pipSize.height - 200, prev.y))
       }));
     }
   };
 
   const fullscreenStyle = "absolute inset-0 w-full h-full z-0";
   // [关键修改] top/left 布局 + 硬件加速hint
-  const pipStyle = "absolute w-32 h-48 rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none will-change-[left,top]";
+  const pipStyle = "absolute rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none will-change-[left,top]";
 
   // [关键逻辑] 视频是否可用判断
   const hasLocalVideo = isCamOn && hasCameraPermission === true;
@@ -205,7 +215,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
       {/* --- Remote Video Panel (展开写法，避免组件重渲染黑屏) --- */}
       <div 
         className={isSwapped ? pipStyle : fullscreenStyle}
-        style={isSwapped ? { left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } : {}}
+        style={isSwapped ? { width: pipSize.width, height: pipSize.height, left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } : {}}
         {...(isSwapped ? pipHandlers : {})}
       >
         <div className="absolute inset-0 flex items-center justify-center bg-black">
@@ -229,7 +239,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
       {/* --- Local Video Panel (展开写法，避免组件重渲染黑屏) --- */}
       <div 
         className={!isSwapped ? pipStyle : fullscreenStyle}
-        style={!isSwapped ? { left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } : {}}
+        style={!isSwapped ? { width: pipSize.width, height: pipSize.height, left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } : {}}
         {...(!isSwapped ? pipHandlers : {})}
       >
         <div className="absolute inset-0 flex items-center justify-center bg-black">
