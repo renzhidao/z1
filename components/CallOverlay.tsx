@@ -63,6 +63,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const [pipPos, setPipPos] = useState({ x: 20, y: 100 });
 
   const [remoteHasVideo, setRemoteHasVideo] = useState(false);
+  const [localHasVideo, setLocalHasVideo] = useState(false);
 
 
 
@@ -84,11 +85,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  const localStreamRef = useRef<MediaStream | null>(null);
-
-
-
-  // 隐藏原生 UI，强制显示 React UI
+    // 隐藏原生 UI，强制显示 React UI
 
   useEffect(() => {
 
@@ -123,6 +120,8 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
       });
 
       if (remoteAudioRef.current) remoteAudioRef.current.play().catch(() => {});
+      try { callAction('setVideoEnabled', true); } catch (e) {}
+
 
     }, 200);
 
@@ -140,8 +139,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
       try {
 
-        if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
-
+        if (
         const stream = await navigator.mediaDevices.getUserMedia({
 
           video: { facingMode: isFrontCamera ? 'user' : 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -150,8 +148,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
         });
 
-        localStreamRef.current = stream;
-
+        
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
         setHasCameraPermission(true);
@@ -180,12 +177,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
     const stopCamera = () => {
 
-      if (localStreamRef.current) {
-
-        localStreamRef.current.getTracks().forEach(t => t.stop());
-
-        localStreamRef.current = null;
-
+      if (
+        
+        
       }
 
       if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -272,8 +266,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
     if (userAction) callAction('hangup');
 
-    if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
-
+    if (
     setCallStatus('ended');
 
     setTimeout(() => { onHangup(); }, 600);
@@ -287,8 +280,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     const next = !isMicOn;
 
     setIsMicOn(next);
-
-    if (localStreamRef.current) localStreamRef.current.getAudioTracks().forEach(t => t.enabled = next);
 
     callAction('setMuted', !next);
 
@@ -370,7 +361,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
   const fullscreenStyle = "absolute inset-0 w-full h-full z-0";
 
-  const pipStyle = "absolute w-32 h-48 rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none";
+  const pipStyle = "absolute left-0 top-0 w-32 h-48 rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none will-change-[left,top]";
 
 
 
@@ -380,13 +371,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
     const style = isPip 
 
-      ? { transform: `translate3d(${pipPos.x}px, ${pipPos.y}px, 0)`, transition: draggingRef.current ? 'none' : 'transform 0.3s ease' } 
+      ? { left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } 
 
       : {};
 
-    const hasLocalVideo = isCamOn && hasCameraPermission === true;
-
-    const showV = isLocal ? hasLocalVideo : remoteHasVideo;
+    const showV = isLocal ? (localHasVideo && isCamOn) : remoteHasVideo;
 
 
 
@@ -462,7 +451,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
           ref={vRef} autoPlay playsInline muted={isLocal}
 
-          className={`absolute inset-0 w-full h-full object-cover z-10 ${isLocal ? 'transform scale-x-[-1]' : ''} transition-opacity duration-300 ${showV ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 w-full h-full object-cover z-10 ${isLocal ? '' : ''} transition-opacity duration-300 ${showV ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
 
         />
 
