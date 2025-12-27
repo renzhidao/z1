@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, Video, PhoneOff, Camera, Minimize2, VideoOff, VolumeX } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  Mic, MicOff, Volume2, VolumeX, Video as VideoIcon, VideoOff, 
+  PhoneOff, Minimize2, RefreshCcw, Plus, ChevronDown
+} from 'lucide-react';
 import { User } from '../types';
 
 interface CallOverlayProps {
@@ -8,7 +11,7 @@ interface CallOverlayProps {
   type: 'voice' | 'video';
 }
 
-// 封装全局调用，避免代码重复
+// 封装全局调用
 const callAction = (action: string, ...args: any[]) => {
   try {
     const p1Call = (window as any).p1Call;
@@ -20,209 +23,304 @@ const callAction = (action: string, ...args: any[]) => {
   }
 };
 
-const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
-  const [seconds, setSeconds] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isSpeaker, setIsSpeaker] = useState(false);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(type === 'video');
+export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
+  const [durationSeconds, setDurationSeconds] = useState(0);
+  const [isMicOn, setIsMicOn] = useState(true);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [isCamOn, setIsCamOn] = useState(type === 'video');
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
+  
+  // PiP State
+  const [isSwapped, setIsSwapped] = useState(false); // false: Main=Remote, PiP=Local
+  const [pipPos, setPipPos] = useState({ x: 20, y: 100 });
+  const [hasInitializedPos, setHasInitializedPos] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 1. 计时器 Effect：只在组件挂载时运行一次
+  // Initialize PiP position
   useEffect(() => {
-    const timer = setInterval(() => {
-      setSeconds(s => s + 1);
-    }, 1000);
+    if (containerRef.current && !hasInitializedPos) {
+      const { clientWidth } = containerRef.current;
+      // PiP width is w-32 (8rem = 128px) + margin
+      setPipPos({ x: clientWidth - 128 - 16, y: 96 }); 
+      setHasInitializedPos(true);
+    }
+  }, [hasInitializedPos]);
+
+  // Timer
+  useEffect(() => {
+    const timer = setInterval(() => setDurationSeconds(p => p + 1), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 2. 媒体流绑定 Effect：当 UI 模式改变导致 ref 变化时运行
+  // Core Integration: Bind Media Streams
   useEffect(() => {
-    // 稍微延迟确保 DOM 已渲染
     const timer = setTimeout(() => {
         callAction('attach', {
           localVideo: localVideoRef.current,
           remoteVideo: remoteVideoRef.current,
           remoteAudio: remoteAudioRef.current,
         });
-        // 远端音频自动播放强制尝试
         if (remoteAudioRef.current) remoteAudioRef.current.play().catch(() => {});
-    }, 100);
+    }, 500); // Give it a bit more time for DOM to stabilize
     return () => clearTimeout(timer);
-  }, [isVideoEnabled]); // 依赖 isVideoEnabled 重新绑定
+  }, [isSwapped, isCamOn]); // Re-bind when views swap or camera toggles
+
+  // Sync State with Core
+  const toggleMic = () => {
+    const next = !isMicOn;
+    setIsMicOn(next);
+    callAction('setMuted', !next); // setMuted(true) means mic off
+  };
+
+  const toggleSpeaker = () => {
+    const next = !isSpeakerOn;
+    setIsSpeakerOn(next);
+    callAction('setSpeaker', next);
+  };
+
+  const toggleCam = () => {
+    const next = !isCamOn;
+    setIsCamOn(next);
+    callAction('setVideoEnabled', next);
+  };
+
+  const switchCamera = () => {
+    setIsFrontCamera(!isFrontCamera);
+    callAction('switchCamera');
+  };
 
   const handleHangup = () => {
     callAction('hangup');
     onHangup();
   };
 
-  const toggleMute = () => {
-    const next = !isMuted;
-    setIsMuted(next);
-    callAction('setMuted', next);
+  const formatDuration = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const toggleSpeaker = () => {
-    const next = !isSpeaker;
-    setIsSpeaker(next);
-    callAction('setSpeaker', next);
+  // Dragging Logic
+  const draggingRef = useRef(false);
+  const dragStartPos = useRef({ x: 0, y: 0 });
+  const initialPipPos = useRef({ x: 0, y: 0 });
+  const hasDragged = useRef(false);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    draggingRef.current = true;
+    hasDragged.current = false;
+    dragStartPos.current = { x: e.clientX, y: e.clientY };
+    initialPipPos.current = { ...pipPos };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  const toggleVideo = () => {
-    const next = !isVideoEnabled;
-    setIsVideoEnabled(next);
-    callAction('setVideoEnabled', next);
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    const dx = e.clientX - dragStartPos.current.x;
+    const dy = e.clientY - dragStartPos.current.y;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) hasDragged.current = true;
+    setPipPos({ x: initialPipPos.current.x + dx, y: initialPipPos.current.y + dy });
   };
 
-  const formatTime = (totalSeconds: number) => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    
+    if (!hasDragged.current) {
+        setIsSwapped(prev => !prev);
+    } else {
+        if (containerRef.current) {
+          const { clientWidth, clientHeight } = containerRef.current;
+          const pipWidth = 128; // w-32
+          const pipHeight = 192; // h-48
+          const margin = 12;
+          setPipPos(prev => ({
+              x: Math.max(margin, Math.min(clientWidth - pipWidth - margin, prev.x)),
+              y: Math.max(80, Math.min(clientHeight - pipHeight - 200, prev.y))
+          }));
+        }
+    }
   };
+
+  // Content Renderers
+  // Local: Self Camera
+  const renderLocal = () => (
+    <div className="w-full h-full bg-black relative">
+      {isCamOn ? (
+        <video 
+          ref={localVideoRef}
+          autoPlay 
+          playsInline 
+          muted 
+          className="w-full h-full object-cover transform scale-x-[-1]" 
+        />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800 text-white/40">
+           <VideoOff size={32} />
+           <span className="text-xs mt-2">摄像头已关</span>
+        </div>
+      )}
+    </div>
+  );
+
+  // Remote: Other Person
+  const renderRemote = () => (
+    <div className="w-full h-full bg-black relative">
+      <audio ref={remoteAudioRef} autoPlay className="hidden" />
+      <video 
+          ref={remoteVideoRef}
+          autoPlay 
+          playsInline 
+          className="w-full h-full object-cover" 
+      />
+      {/* Fallback if no video (handled by CSS/z-index usually, but here we just put image behind) */}
+      <div className="absolute inset-0 -z-10">
+         <img src={user.avatar} className="w-full h-full object-cover opacity-50 blur-xl" alt="remote_bg" />
+         <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <img src={user.avatar} className="w-24 h-24 rounded-2xl shadow-2xl mb-4" alt="remote_avatar" />
+            <span className="text-white text-xl font-medium shadow-black drop-shadow-lg">{user.name}</span>
+         </div>
+      </div>
+    </div>
+  );
+
+  // Default: Main=Remote, PiP=Local
+  // Swapped: Main=Local, PiP=Remote
+  const MainContent = isSwapped ? renderLocal() : renderRemote();
+  const PiPContent = isSwapped ? renderRemote() : renderLocal();
 
   return (
-    <div className="fixed inset-0 bg-[#2b2b2b] z-[100] flex flex-col items-center animate-in slide-in-from-bottom duration-300">
+    <div ref={containerRef} className="fixed inset-0 z-[100] bg-gray-900 overflow-hidden flex flex-col select-none animate-in fade-in duration-300">
       
-      {/* 修复：Audio 标签始终存在但隐藏，保证声音流不中断 */}
-      <audio ref={remoteAudioRef} autoPlay className="hidden" />
-
-      {/* Background */}
-      <div className="absolute inset-0 z-0 opacity-30">
-        <img src={user.avatar} className="w-full h-full object-cover blur-2xl" alt="bg"/>
-      </div>
-      
-      {/* Top Controls */}
-      <div className="relative z-10 w-full flex justify-between p-4 pt-safe-top">
-         <button onClick={handleHangup} className="p-2 text-white/80 active:opacity-50">
-           <Minimize2 size={24} />
-         </button>
+      {/* Background Layer (Main View) */}
+      <div className="absolute inset-0 z-0">
+        {MainContent}
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center pt-16 z-10 w-full relative">
-         {!isVideoEnabled ? (
-             <>
-                <img src={user.avatar} className="w-24 h-24 rounded-[12px] mb-4 shadow-lg" alt="Avatar"/>
-                <h2 className="text-white text-[24px] font-normal mb-2">{user.name}</h2>
-                <div className="text-white/70 text-[16px]">{formatTime(seconds)}</div>
-             </>
-         ) : (
-             <div className="absolute inset-0 bg-black flex items-center justify-center">
-                 <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover opacity-80" />
-                 <div className="absolute top-24 left-1/2 -translate-x-1/2 text-white text-[20px] drop-shadow-md">
-                     {formatTime(seconds)}
-                 </div>
-                 {/* Self View */}
-                 <div className="absolute top-4 right-4 w-28 h-40 bg-gray-800 rounded-[8px] overflow-hidden border border-white/20 shadow-lg">
-                     <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-                 </div>
+      {/* Top Overlay Controls */}
+      <div className="absolute top-0 left-0 right-0 pt-safe-top px-4 pb-4 flex justify-between items-center z-10 text-white pointer-events-none bg-gradient-to-b from-black/60 to-transparent">
+        <div 
+          onClick={onHangup} // Minimize just closes overlay for now
+          className="p-3 bg-white/10 rounded-full backdrop-blur-md active:bg-white/20 transition-colors pointer-events-auto"
+        >
+          <Minimize2 size={24} />
+        </div>
+        <div className="flex flex-col items-center">
+             <div className="text-xl font-medium tracking-wide shadow-black drop-shadow-md">
+               {isSwapped ? '我' : user.name}
              </div>
-         )}
+             <div className="text-sm opacity-80 font-light tracking-widest">
+               {formatDuration(durationSeconds)}
+             </div>
+        </div>
+        <div className="p-3 opacity-0 pointer-events-none">
+          <Plus size={24} />
+        </div>
       </div>
 
-      {/* Bottom Controls */}
-      <div className="relative z-20 w-full pb-safe-bottom px-8 mb-12">
-         {!isVideoEnabled ? (
-            // Voice Call Controls
-            <div className="grid grid-cols-3 gap-8 items-end">
-                <ControlBtn 
-                   icon={isMuted ? <MicOff /> : <Mic />} 
-                   label={isMuted ? "已静音" : "静音"} 
-                   active={isMuted}
-                   onClick={toggleMute} 
-                />
-                
-                {/* 中间放置挂断 */}
-                <div className="flex flex-col items-center">
-                   <button 
-                     onClick={handleHangup}
-                     className="w-16 h-16 bg-[#FA5151] rounded-full flex items-center justify-center text-white mb-2 active:opacity-80 shadow-lg"
-                   >
-                     <PhoneOff size={32} fill="white" />
-                   </button>
-                   <span className="text-white/70 text-[12px]">挂断</span>
-                </div>
+      {/* Picture in Picture (Draggable & Swappable) */}
+      {/* 放大尺寸：w-32 (128px) x h-48 (192px) */}
+      <div 
+        className="absolute w-32 h-48 bg-black rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none"
+        style={{ 
+          transform: `translate3d(${pipPos.x}px, ${pipPos.y}px, 0)`,
+          transition: draggingRef.current ? 'none' : 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)'
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+         {PiPContent}
+         
+         {/* PiP Overlay Info */}
+         <div className="absolute bottom-2 left-2 text-[10px] text-white/80 bg-black/40 px-1.5 rounded backdrop-blur-sm">
+            {isSwapped ? user.name : '我'}
+         </div>
+      </div>
 
-                {/* 右侧放置扬声器，但在语音模式下，建议增加一个“切视频”的入口，
-                    或者将“扬声器”替换为“视频”按钮。通常语音通话界面会有4个按钮(静音/扬声器/视频/更多)。
-                    为了布局平衡，这里我们可以把扬声器放在这，但一定要加回视频开关 */}
-                
-                 {/* 修复逻辑：这里使用了 4 格布局或者在扬声器旁边加小按钮。
-                     为保持原 3 列布局，我们可以把扬声器按钮改成多功能，或者就在这里保持原样，
-                     但在下方修复 ControlBtn 让它可以切换视频。
-                     
-                     更合理的做法：语音模式也应该能开摄像头。
-                  */}
-                 <div className="flex flex-col gap-4">
-                     <ControlBtn 
-                        icon={isSpeaker ? <Volume2 /> : <VolumeX />} // 修复图标逻辑
-                        label={isSpeaker ? "扬声器" : "听筒"} 
-                        active={isSpeaker}
-                        onClick={toggleSpeaker} 
-                     />
-                     {/* 临时方案：在这里加一个小的切换视频按钮，防止卡死在语音模式 */}
-                     <button onClick={toggleVideo} className="absolute right-0 top-[-60px] p-3 bg-white/10 rounded-full text-white">
-                        <VideoOff size={20}/>
-                     </button>
-                 </div>
+      {/* Bottom Controls Area */}
+      <div className="absolute bottom-0 left-0 right-0 pb-safe-bottom pt-32 px-8 bg-gradient-to-t from-black/90 via-black/60 to-transparent z-30">
+        
+        {/* Main Action Buttons - 放大尺寸 */}
+        <div className="flex justify-between items-center mb-12 px-4">
+          
+          {/* Mic */}
+          <div className="flex flex-col items-center space-y-3">
+            <button 
+              onClick={toggleMic}
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-lg ${isMicOn ? 'bg-white text-black' : 'bg-white/20 text-white backdrop-blur-md'}`}
+            >
+              {isMicOn ? <Mic size={28} /> : <MicOff size={28} />}
+            </button>
+            <span className="text-xs text-white/90 drop-shadow-md font-light">
+              {isMicOn ? '麦克风' : '已静音'}
+            </span>
+          </div>
+
+          {/* Speaker */}
+          <div className="flex flex-col items-center space-y-3">
+            <button 
+              onClick={toggleSpeaker}
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-lg ${isSpeakerOn ? 'bg-white text-black' : 'bg-white/20 text-white backdrop-blur-md'}`}
+            >
+              {isSpeakerOn ? <Volume2 size={28} /> : <VolumeX size={28} />}
+            </button>
+            <span className="text-xs text-white/90 drop-shadow-md font-light">
+              {isSpeakerOn ? '扬声器' : '听筒'}
+            </span>
+          </div>
+
+          {/* Camera */}
+          <div className="flex flex-col items-center space-y-3">
+            <button 
+              onClick={toggleCam}
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-lg ${isCamOn ? 'bg-white text-black' : 'bg-white/20 text-white backdrop-blur-md'}`}
+            >
+              {isCamOn ? <VideoIcon size={28} /> : <VideoOff size={28} />}
+            </button>
+            <span className="text-xs text-white/90 drop-shadow-md font-light">
+              {isCamOn ? '摄像头' : '已关'}
+            </span>
+          </div>
+        </div>
+
+        {/* Bottom Actions Row */}
+        <div className="flex justify-between items-center px-6 pb-6">
+          <div className="flex flex-col items-center w-12">
+            {/* Placeholder for effects/more */}
+            <div className="p-3 rounded-full bg-white/10 backdrop-blur-md active:bg-white/20 transition-colors">
+               <ChevronDown size={24} className="text-white" />
             </div>
-         ) : (
-            // Video Call Controls
-            <div className="grid grid-cols-3 gap-y-8 gap-x-4 items-center">
-                 <ControlBtn 
-                   icon={isMuted ? <MicOff /> : <Mic />} 
-                   label={isMuted ? "已静音" : "静音"} 
-                   active={isMuted}
-                   onClick={toggleMute} 
-                />
-                 <ControlBtn 
-                   icon={isSpeaker ? <Volume2 /> : <VolumeX />} 
-                   label={isSpeaker ? "扬声器" : "听筒"} 
-                   active={isSpeaker}
-                   onClick={toggleSpeaker} 
-                />
-                 <ControlBtn 
-                   icon={isVideoEnabled ? <Video /> : <VideoOff />} 
-                   label={isVideoEnabled ? "摄像头开" : "摄像头关"} 
-                   active={isVideoEnabled} // 这里通常开启是 active
-                   onClick={toggleVideo} 
-                />
-                 <ControlBtn 
-                   icon={<Camera />} 
-                   label="翻转" 
-                   onClick={() => callAction('switchCamera')} 
-                />
-                <div className="flex flex-col items-center">
-                   <button 
-                     onClick={handleHangup}
-                     className="w-16 h-16 bg-[#FA5151] rounded-full flex items-center justify-center text-white mb-2 active:opacity-80 shadow-lg"
-                   >
-                     <PhoneOff size={32} fill="white" />
-                   </button>
-                </div>
-                <div className="w-full"></div> 
-            </div>
-         )}
+          </div>
+
+          {/* Hang Up Button - 红色醒目 */}
+          <button 
+            onClick={handleHangup}
+            className="w-20 h-20 rounded-full bg-[#ff3b30] flex items-center justify-center shadow-2xl shadow-red-900/50 transform transition-transform active:scale-90"
+          >
+            <PhoneOff size={36} className="text-white fill-current" />
+          </button>
+
+           {/* Switch Camera */}
+           <button 
+            onClick={switchCamera}
+            className="flex flex-col items-center p-3 rounded-full bg-white/10 backdrop-blur-md w-12 active:bg-white/20 transition-colors"
+          >
+            <RefreshCcw size={24} className="text-white" />
+          </button>
+        </div>
+
       </div>
     </div>
   );
 };
-
-// 修复 ControlBtn 样式 Bug
-const ControlBtn: React.FC<{ icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }> = ({ icon, label, active, onClick }) => (
-  <div className="flex flex-col items-center justify-center gap-2">
-     <button 
-       onClick={onClick}
-       // 修复：active 时显示白底黑字，inactive 时显示半透明底白字
-       className={`w-[60px] h-[60px] rounded-full flex items-center justify-center transition-colors 
-         ${active ? 'bg-white text-black' : 'bg-white/20 text-white hover:bg-white/30'}`}
-     >
-        {React.cloneElement(icon as React.ReactElement<any>, { size: 30, strokeWidth: 1.5 })}
-     </button>
-     <span className="text-white/80 text-[12px]">{label}</span>
-  </div>
-);
 
 export default CallOverlay;
