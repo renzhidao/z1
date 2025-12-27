@@ -1781,13 +1781,24 @@ const handleSendText = async () => {
                       fileId={meta?.fileId}
                     />
                   ) : isCallLog ? (
-                    <div className="bg-white rounded-[4px] px-3 py-2.5 shadow-sm border border-gray-100 flex items-center gap-2.5 select-none">
-                      <div className={`p-1.5 rounded-full ${msg.text?.includes('取消') || msg.text?.includes('拒绝') ? 'bg-gray-100' : 'bg-[#FA9D3B]/10'}`}>
-                         <Video size={20} className={msg.text?.includes('取消') || msg.text?.includes('拒绝') ? 'text-gray-400 fill-current' : 'text-[#FA9D3B] fill-current'} />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[15px] text-[#191919]">{msg.text || msg.content || '通话记录'}</span>
-                      </div>
+                    <div
+                      className="relative px-2.5 py-2 rounded-[4px] text-[16px] text-[#191919] leading-relaxed shadow-sm select-text min-h-[40px] flex items-center gap-2"
+                      style={{ backgroundColor: bubbleColorHex }}
+                    >
+                      {/* 气泡尖角 */}
+                      <div
+                        className={`absolute top-[14px] w-0 h-0 border-[6px] border-transparent ${
+                          isMe ? 'right-[-6px]' : 'left-[-6px]'
+                        }`}
+                        style={{
+                          borderLeftColor: isMe ? bubbleColorHex : 'transparent',
+                          borderRightColor: !isMe ? bubbleColorHex : 'transparent',
+                          borderTopColor: 'transparent',
+                          borderBottomColor: 'transparent',
+                        }}
+                      ></div>
+                      <Video size={18} className={msg.text?.includes('取消') ? 'text-gray-400' : 'text-[#FA9D3B]'} />
+                      <span>{msg.text || '通话记录'}</span>
                     </div>
                   ) : isFile ? (
                     <div
