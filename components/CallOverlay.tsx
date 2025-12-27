@@ -11,6 +11,7 @@ interface CallOverlayProps {
   type: 'voice' | 'video';
 }
 
+
 const callAction = (action: string, ...args: any[]) => {
   try {
     const p1Call = (window as any).p1Call;
@@ -32,6 +33,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const [pipPos, setPipPos] = useState({ x: 20, y: 100 });
   const [pipSize, setPipSize] = useState({ width: 128, height: 192 });
   const [remoteHasVideo, setRemoteHasVideo] = useState(false);
+  const [selfAvatar, setSelfAvatar] = useState<string | null>(null);
 
   const draggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -43,6 +45,20 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+
+  
+  // 读取本地存储的个人头像
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('user') || localStorage.getItem('currentUser') || localStorage.getItem('p1_user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.avatar) {
+          setSelfAvatar(parsed.avatar);
+        }
+      }
+    } catch (e) { console.error('Failed to load self avatar', e); }
+  }, []);
 
   // 隐藏原生 UI
   useEffect(() => {
@@ -247,9 +263,23 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
               {!hasLocalVideo && (
                 // [关键修改] 去掉文字，只显图标
                 
-<div className={`flex items-center justify-center rounded-full bg-white/20 ${!isSwapped ? 'w-12 h-12' : 'w-24 h-24'}`}>
-  <UserIcon size={!isSwapped ? 24 : 48} className="text-white/80" />
-</div>
+
+
+
+              {selfAvatar ? (
+                <img 
+                  src={selfAvatar} 
+                  className={`rounded-full shadow-md object-cover bg-gray-200 ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`} 
+                  alt="Me" 
+                />
+              ) : (
+                <div className={`flex items-center justify-center rounded-full bg-[#e5e7eb] shadow-md ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`}>
+                  <UserIcon size={!isSwapped ? 32 : 64} className="text-[#9ca3af] fill-current" />
+                </div>
+              )}
+
+
+
 
               )}
            </div>
