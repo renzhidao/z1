@@ -228,7 +228,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
       {/* Picture in Picture (Draggable & Swappable) */}
       {/* 放大尺寸：w-32 (128px) x h-48 (192px) */}
       <div 
-className="absolute w-36 h-56 bg-black rounded-xl overflow-hidden border-2 border-[#07C160]/50 shadow-2xl z-20 cursor-move touch-none"
+className="absolute w-28 h-44 bg-black rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none"
         style={{ 
           transform: `translate3d(${pipPos.x}px, ${pipPos.y}px, 0)`,
           transition: draggingRef.current ? 'none' : 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)'
@@ -304,7 +304,7 @@ className="absolute w-36 h-56 bg-black rounded-xl overflow-hidden border-2 borde
           {/* Hang Up Button - 红色醒目 */}
           <button 
             onClick={handleHangup}
-className="w-24 h-24 rounded-full bg-[#ff3b30] flex items-center justify-center shadow-2xl shadow-red-900/50 transform transition-transform active:scale-90"
+className="w-16 h-16 rounded-full bg-[#ff3b30] flex items-center justify-center shadow-lg shadow-red-900/30 transform transition-transform active:scale-90"
           >
             <PhoneOff size={36} className="text-white fill-current" />
           </button>

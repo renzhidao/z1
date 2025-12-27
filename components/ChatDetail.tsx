@@ -1578,7 +1578,7 @@ const handleSendText = async () => {
       {showLog && <LogConsole onClose={() => setShowLog(false)} />}
 
       {/* Call Overlay */}
-      {activeCall && !(window as any).__p1_call_ui_native && (
+{activeCall && (
         <CallOverlay
           user={chat.user}
           type={activeCall}
