@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Chat, Message, User } from '../types';
 
 export function useCoreBridge() {
+  const seedRef = useRef(Math.floor(Math.random() * 100000));
   const [contacts, setContacts] = useState<Chat[]>([]);
   const [currentUser, setCurrentUser] = useState<User>({ id: 'me', name: '我', avatar: '' });
   const [mqttStatus, setMqttStatus] = useState<string>('初始化');
@@ -28,7 +29,7 @@ avatar: `https://picsum.photos/seed/${window.state.myId}/200/200`,
     // Public Channel (Always First)
     chatList.push({
       id: 'all',
-user: { id: 'all', name: '公共频道', avatar: 'https://picsum.photos/seed/all/200/200' },
+user: { id: 'all', name: '公共频道', avatar: `https://picsum.photos/seed/public_${seedRef.current}/200/200` },
       lastMessage: '[公共广播]',
       timestamp: '',
       unreadCount: unread['all'] || 0,
