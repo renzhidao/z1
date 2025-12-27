@@ -316,8 +316,8 @@ className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity 
               </div>
             </div>
             <div className="flex justify-between items-center px-6 pb-6 pointer-events-auto">
-              <button onClick={() => setIsMirrored(p => !p)} className={`flex flex-col items-center p-3 rounded-lg backdrop-blur-md w-12 transition-colors ${isMirrored ? 'bg-white text-black' : 'bg-white/10 text-white'} active:bg-white/20`}>
-                <FlipHorizontal size={24} />
+              <button onClick={() => setIsMirrored(p => !p)} className="w-12 h-12 flex items-center justify-center rounded-full bg-white/10 active:bg-white/20 transition-colors">
+                <FlipHorizontal size={24} className={isMirrored ? "text-white" : "text-white/40"} />
               </button>
               <button onClick={() => handleHangup(true)} className="w-16 h-16 rounded-full bg-[#ff3b30] flex items-center justify-center shadow-lg active:scale-90 transition-transform">
                 <PhoneOff size={36} className="text-white fill-current" />
