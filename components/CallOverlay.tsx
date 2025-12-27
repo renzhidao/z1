@@ -261,21 +261,19 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
         <div className="absolute inset-0 flex items-center justify-center bg-black">
            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
               {!hasLocalVideo && (
-                // [关键修改] 去掉文字，只显图标
-                
-
-
-
-              {selfAvatar ? (
-                <img 
-                  src={selfAvatar} 
-                  className={`rounded-full shadow-md object-cover bg-gray-200 ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`} 
-                  alt="Me" 
-                />
-              ) : (
-                <div className={`flex items-center justify-center rounded-full bg-[#e5e7eb] shadow-md ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`}>
-                  <UserIcon size={!isSwapped ? 32 : 64} className="text-[#9ca3af] fill-current" />
-                </div>
+                selfAvatar ? (
+                  <img 
+                    src={selfAvatar} 
+                    className={`rounded-full shadow-md object-cover bg-gray-200 ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`} 
+                    alt="Me" 
+                  />
+                ) : (
+                  <div className={`flex items-center justify-center rounded-full bg-[#e5e7eb] shadow-md ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`}>
+                    <UserIcon size={!isSwapped ? 32 : 64} className="text-[#9ca3af] fill-current" />
+                  </div>
+                )
+              )}
+</div>
               )}
 
 
