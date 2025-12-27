@@ -270,7 +270,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
         </div>
         <div className="flex flex-col items-center">
           <div className="text-xl font-medium drop-shadow-md">{isSwapped ? '我' : user.name}</div>
-          <div className="text-sm opacity-80 font-light">{callStatus === 'ended' ? '通话已结束' : (callStatus === 'calling' ? '正在呼叫...' : formatDuration(durationSeconds))}</div>
+          <div className="text-sm opacity-80 font-light">{callStatus === 'ended' ? (durationSeconds > 0 ? '通话已结束' : '通话已取消') : (callStatus === 'calling' ? '正在呼叫...' : formatDuration(durationSeconds))}</div>
         </div>
         <div className="p-3 opacity-0"><Plus size={24} /></div>
       </div>
