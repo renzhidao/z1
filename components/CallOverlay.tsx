@@ -242,13 +242,17 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
         style={!isSwapped ? { width: pipSize.width, height: pipSize.height, left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } : {}}
         {...(!isSwapped ? pipHandlers : {})}
       >
-        <div className="absolute inset-0 flex items-center justify-center bg-black">
-           <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
-              {!hasLocalVideo && (
-                // [关键修改] 去掉文字，只显图标
-                <VideoOff size={!isSwapped ? 22 : 44} />
-              )}
-           </div>
+        <div className="absolute inset-0 flex items-center justify-center bg-black overflow-hidden">
+           {/* 本地无视频时显示头像背景 */}
+           {!hasLocalVideo && (
+             <>
+               <img src={localStorage.getItem('user_avatar') || 'https://picsum.photos/seed/me/200/200'} className="absolute inset-0 w-full h-full object-cover opacity-35 blur-xl" alt="" />
+               <div className="relative z-0 flex flex-col items-center">
+                  <img src={localStorage.getItem('user_avatar') || 'https://picsum.photos/seed/me/200/200'} className={`${!isSwapped ? 'w-12 h-12' : 'w-24 h-24'} rounded-2xl shadow-lg mb-2`} alt="" />
+                  {isSwapped && <span className="text-white/60 text-sm mt-1">摄像头已关闭</span>}
+               </div>
+             </>
+           )}
         </div>
         <video 
           ref={localVideoRef} autoPlay playsInline muted 
