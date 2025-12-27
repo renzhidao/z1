@@ -249,40 +249,40 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
         <div className="flex-1"></div>
 
         {/* 底部控制栏 */}
-        <div className="relative z-10 w-full px-10 pb-12">
+        <div className="relative z-10 w-full px-12 pb-16">
           {callStatus !== 'ended' && (
-            <div className="flex justify-between items-center">
+            <div className="grid grid-cols-3 items-center justify-items-center">
               {/* 麦克风 */}
-              <div className="flex flex-col items-center space-y-3">
+              <div className="flex flex-col items-center space-y-4">
                 <button 
                   onClick={toggleMic}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 ${isMicOn ? 'bg-white text-black' : 'bg-white/15 text-white'}`}
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:bg-white/30 ${isMicOn ? 'bg-white text-black' : 'bg-white/10 text-white backdrop-blur-md'}`}
                 >
-                  {isMicOn ? <Mic size={32} /> : <MicOff size={32} />}
+                  {isMicOn ? <Mic size={28} /> : <MicOff size={28} />}
                 </button>
-                <span className="text-xs text-white/70">麦克风</span>
+                <span className="text-[13px] text-white/80 font-light">麦克风</span>
               </div>
 
-              {/* 挂断 */}
-              <div className="flex flex-col items-center space-y-3 mx-4">
+              {/* 挂断 (居中) */}
+              <div className="flex flex-col items-center space-y-4">
                 <button 
                   onClick={() => handleHangup(true)}
-                  className="w-20 h-20 rounded-full bg-[#ff3b30] flex items-center justify-center shadow-lg shadow-red-900/20 active:scale-90 transition-transform"
+                  className="w-[72px] h-[72px] rounded-full bg-[#ff3b30] flex items-center justify-center shadow-lg shadow-red-900/30 active:scale-95 transition-transform"
                 >
-                  <PhoneOff size={40} className="text-white fill-current" />
+                  <PhoneOff size={32} className="text-white fill-current" />
                 </button>
-                <span className="text-xs text-white/70">挂断</span>
+                <span className="text-[13px] text-white/80 font-light">挂断</span>
               </div>
 
               {/* 扬声器 */}
-              <div className="flex flex-col items-center space-y-3">
+              <div className="flex flex-col items-center space-y-4">
                 <button 
                   onClick={toggleSpeaker}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 ${isSpeakerOn ? 'bg-white text-black' : 'bg-white/15 text-white'}`}
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:bg-white/30 ${isSpeakerOn ? 'bg-white text-black' : 'bg-white/10 text-white backdrop-blur-md'}`}
                 >
-                  {isSpeakerOn ? <Volume2 size={32} /> : <VolumeX size={32} />}
+                  {isSpeakerOn ? <Volume2 size={28} /> : <VolumeX size={28} />}
                 </button>
-                <span className="text-xs text-white/70">扬声器</span>
+                <span className="text-[13px] text-white/80 font-light">扬声器</span>
               </div>
             </div>
           )}
