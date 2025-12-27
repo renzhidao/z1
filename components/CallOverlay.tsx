@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Mic, MicOff, Volume2, VolumeX, Video as VideoIcon, VideoOff, 
-  PhoneOff, Minimize2, RefreshCcw, Plus 
+  PhoneOff, Minimize2, RefreshCcw, Plus, FlipHorizontal
 } from 'lucide-react';
 import { User } from '../types';
 import { useCoreBridge } from '../hooks/useCoreBridge';
@@ -29,6 +29,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(type === 'video');
   const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const [isMirrored, setIsMirrored] = useState(true);
   const [isSwapped, setIsSwapped] = useState(false); 
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [pipPos, setPipPos] = useState({ x: 20, y: 100 });
@@ -166,7 +167,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   };
   const toggleSpeaker = () => { setIsSpeakerOn(p => !p); callAction('setSpeaker', !isSpeakerOn); };
   const toggleCam = () => { setIsCamOn(p => !p); callAction('setVideoEnabled', !isCamOn); };
-  const switchCamera = () => { setIsFrontCamera(p => !p); callAction('switchCamera'); };
+  const switchCamera = () => { 
+    setIsFrontCamera(p => {
+      const next = !p;
+      setIsMirrored(next); // 前置默认镜像，后置默认不镜像
+      return next;
+    }); 
+    callAction('switchCamera'); 
+  };
 
   const formatDuration = (secs: number) => {
     const m = Math.floor(secs / 60), s = secs % 60;
@@ -264,7 +272,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
         </div>
         <video 
           ref={localVideoRef} autoPlay playsInline muted 
-          className={`absolute inset-0 w-full h-full object-cover z-10 transform scale-x-[-1] transition-opacity duration-300 ${hasLocalVideo ? 'opacity-100' : 'opacity-0'}`}
+className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-300 ${isMirrored ? 'transform scale-x-[-1]' : ''} ${hasLocalVideo ? 'opacity-100' : 'opacity-0'}`}
         />
         {!isSwapped && (
           <div className="absolute bottom-1 left-1 z-20 bg-black/50 px-1.5 py-0.5 rounded text-[10px] text-white/90">我</div>
@@ -308,7 +316,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
               </div>
             </div>
             <div className="flex justify-between items-center px-6 pb-6 pointer-events-auto">
-              <div className="w-12"></div>
+              <button onClick={() => setIsMirrored(p => !p)} className={`flex flex-col items-center p-3 rounded-lg backdrop-blur-md w-12 transition-colors ${isMirrored ? 'bg-white text-black' : 'bg-white/10 text-white'} active:bg-white/20`}>
+                <FlipHorizontal size={24} />
+              </button>
               <button onClick={() => handleHangup(true)} className="w-16 h-16 rounded-full bg-[#ff3b30] flex items-center justify-center shadow-lg active:scale-90 transition-transform">
                 <PhoneOff size={36} className="text-white fill-current" />
               </button>
