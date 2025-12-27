@@ -1582,7 +1582,25 @@ const handleSendText = async () => {
         <CallOverlay
           user={chat.user}
           type={activeCall}
-          onHangup={() => { try { (window as any).p1Call && (window as any).p1Call.hangup && (window as any).p1Call.hangup(); } catch (_) {} setActiveCall(null); }}
+          onHangup={(info) => { 
+            try { (window as any).p1Call && (window as any).p1Call.hangup && (window as any).p1Call.hangup(); } catch (_) {} 
+            setActiveCall(null); 
+            // 插入通话记录消息
+            if (info) {
+              const text = info.canceled ? '通话已取消' : `通话时长 ${info.duration}`;
+              const newMsg = {
+                id: Date.now().toString(),
+                text: text,
+                senderId: currentUserId,
+                type: 'call_log',
+                kind: 'call_log',
+                timestamp: new Date(),
+                ts: Date.now(),
+              };
+              setMessages(prev => [...prev, newMsg]);
+              setTimeout(() => scrollToBottom(false), 100);
+            }
+          }}
         />
       )}
 
