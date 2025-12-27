@@ -224,9 +224,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     onPointerCancel: onPipPointerUp
   };
 
-  if (type === 'voice') {
+    if (type === 'voice') {
     return (
-      <div id="p1-react-call-overlay" className="fixed inset-0 z-[100] bg-[#191919] flex flex-col items-center justify-between pb-safe-bottom select-none overflow-hidden">
+      <div id="p1-react-call-overlay" className="fixed inset-0 z-[100] bg-[#191919] select-none overflow-hidden">
         <audio ref={remoteAudioRef} autoPlay className="hidden" />
         
         {/* 背景模糊层 */}
@@ -234,22 +234,19 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
            <img src={user.avatar} className="w-full h-full object-cover blur-3xl scale-125" alt="" />
         </div>
 
-        {/* 顶部信息 */}
-        <div className="relative z-10 flex flex-col items-center pt-24 w-full">
+        {/* 顶部信息 (绝对定位) */}
+        <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-24">
            <div className="w-28 h-28 rounded-2xl overflow-hidden shadow-2xl mb-6 ring-1 ring-white/10">
              <img src={user.avatar} className="w-full h-full object-cover" alt="" />
            </div>
-           <h2 className="text-white text-3xl font-medium mb-3 tracking-wide">{user.name}</h2>
+           <h2 className="text-white text-3xl font-medium mb-3 tracking-wide drop-shadow-md">{user.name}</h2>
            <p className="text-white/60 text-base font-light">
              {callStatus === 'ended' ? (durationSeconds > 0 ? '通话已结束' : '通话已取消') : (callStatus === 'calling' ? '正在呼叫...' : formatDuration(durationSeconds))}
            </p>
         </div>
 
-        {/* 中间区域 (可扩展) */}
-        <div className="flex-1"></div>
-
-        {/* 底部控制栏 */}
-        <div className="relative z-10 w-full px-12 pb-16">
+        {/* 底部控制栏 (绝对定位) */}
+        <div className="absolute bottom-0 left-0 right-0 z-10 w-full px-12 pb-16">
           {callStatus !== 'ended' && (
             <div className="grid grid-cols-3 items-center justify-items-center">
               {/* 麦克风 */}
