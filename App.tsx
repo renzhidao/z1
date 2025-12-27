@@ -432,10 +432,35 @@ case Tab.ME:
 
       {callState.active && callState.user && (
          <CallOverlay 
-            user={callState.user} 
-            type={callState.type} 
-            onHangup={() => setCallState({ ...callState, active: false })} 
-         />
+             user={callState.user} 
+             type={callState.type} 
+             onHangup={(info) => {
+                 setCallState({ ...callState, active: false });
+                 if (selectedChat && info) {
+                     const text = info.canceled ? "通话已取消" : `通话时长 ${info.duration}`;
+                     // 模拟插入一条系统消息 (本地临时)
+                     const newMsg = {
+                         id: Date.now().toString(),
+                         text: text,
+                         sender: 'me', // 或 'system'，取决于 ChatDetail 如何渲染 call_log
+                         type: 'call_log', // 假设 ChatDetail 支持此类型，若不支持需核对
+                         timestamp: '刚刚',
+                         isMe: true
+                     };
+                     // 更新 selectedChat
+                     const updatedChat = { 
+                         ...selectedChat, 
+                         messages: [...selectedChat.messages, newMsg],
+                         lastMessage: text,
+                         timestamp: '刚刚'
+                     };
+                     setSelectedChat(updatedChat);
+                     
+                     // 同时更新列表预览 (简单模拟)
+                     // 注意：正式环境应走 Core 消息发送接口
+                 }
+             }} 
+          />
       )}
 
       {/* Search Overlay */}

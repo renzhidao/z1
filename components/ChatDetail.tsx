@@ -1701,6 +1701,9 @@ const handleSendText = async () => {
             (msg.kind === 'file' || msg.kind === 'SMART_FILE_UI') &&
             !isVideo && !isImage && !isVoice && !isAudio;
 
+          // [AI新增] 通话记录判断
+          const isCallLog = msg.type === 'call_log' || msg.kind === 'call_log';
+
 
 
           const mediaSrc = (isImage || isVideo) ? getMediaSrc(msg) : '';
@@ -1759,6 +1762,15 @@ const handleSendText = async () => {
                       isMe={isMe}
                       fileId={meta?.fileId}
                     />
+                  ) : isCallLog ? (
+                    <div className="bg-white rounded-[4px] px-3 py-2.5 shadow-sm border border-gray-100 flex items-center gap-2.5 select-none">
+                      <div className={`p-1.5 rounded-full ${msg.text?.includes('取消') || msg.text?.includes('拒绝') ? 'bg-gray-100' : 'bg-[#FA9D3B]/10'}`}>
+                         <Video size={20} className={msg.text?.includes('取消') || msg.text?.includes('拒绝') ? 'text-gray-400 fill-current' : 'text-[#FA9D3B] fill-current'} />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[15px] text-[#191919]">{msg.text || msg.content || '通话记录'}</span>
+                      </div>
+                    </div>
                   ) : isFile ? (
                     <div
                       onClick={() => handleSmartFileDownload(msg)}

@@ -7,7 +7,7 @@ import { User } from '../types';
 
 interface CallOverlayProps {
   user: User;
-  onHangup: () => void;
+  onHangup: (info?: { duration?: string; canceled?: boolean }) => void;
   type: 'voice' | 'video';
 }
 
@@ -147,7 +147,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     if (userAction) callAction('hangup');
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
     setCallStatus('ended');
-    setTimeout(() => { onHangup(); }, 600);
+    const isCanceled = durationSeconds === 0;
+    setTimeout(() => { 
+        onHangup({ 
+            duration: formatDuration(durationSeconds),
+            canceled: isCanceled
+        }); 
+    }, 600);
   };
 
   const toggleMic = () => { 
