@@ -433,7 +433,6 @@ case Tab.ME:
       {callState.active && callState.user && (
          <CallOverlay 
              user={callState.user} 
-             myself={currentUser}
              type={callState.type} 
              onHangup={(info) => {
                  setCallState({ ...callState, active: false });

@@ -4,10 +4,10 @@ import {
   PhoneOff, Minimize2, RefreshCcw, Plus 
 } from 'lucide-react';
 import { User } from '../types';
+import { useCoreBridge } from '../hooks/useCoreBridge';
 
 interface CallOverlayProps {
   user: User;
-  myself?: User;
   onHangup: (info?: { duration?: string; canceled?: boolean }) => void;
   type: 'voice' | 'video';
 }
@@ -21,7 +21,8 @@ const callAction = (action: string, ...args: any[]) => {
   } catch (e) { console.error(e); }
 };
 
-export const CallOverlay: React.FC<CallOverlayProps> = ({ user, myself, onHangup, type }) => {
+export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }) => {
+  const { currentUser } = useCoreBridge();
   const [callStatus, setCallStatus] = useState<'calling' | 'connected' | 'ended'>('calling');
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -253,9 +254,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, myself, onHangup
            {/* 本地无视频时显示头像背景 */}
            {!hasLocalVideo && (
              <>
-               <img src={myself?.avatar || localStorage.getItem('user_avatar') || 'https://picsum.photos/seed/me/200/200'} className="absolute inset-0 w-full h-full object-cover opacity-35 blur-xl" alt="" />
+               <img src={currentUser.avatar} className="absolute inset-0 w-full h-full object-cover opacity-35 blur-xl" alt="" />
                <div className="relative z-0 flex flex-col items-center">
-                  <img src={myself?.avatar || localStorage.getItem('user_avatar') || 'https://picsum.photos/seed/me/200/200'} className={`${!isSwapped ? 'w-12 h-12' : 'w-24 h-24'} rounded-2xl shadow-lg mb-2`} alt="" />
+                  <img src={currentUser.avatar} className={`${!isSwapped ? 'w-12 h-12' : 'w-24 h-24'} rounded-2xl shadow-lg mb-2`} alt="" />
                   {isSwapped && <span className="text-white/60 text-sm mt-1">摄像头已关闭</span>}
                </div>
              </>
