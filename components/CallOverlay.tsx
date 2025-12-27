@@ -224,6 +224,73 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     onPointerCancel: onPipPointerUp
   };
 
+  if (type === 'voice') {
+    return (
+      <div id="p1-react-call-overlay" className="fixed inset-0 z-[100] bg-[#191919] flex flex-col items-center justify-between pb-safe-bottom select-none overflow-hidden">
+        <audio ref={remoteAudioRef} autoPlay className="hidden" />
+        
+        {/* 背景模糊层 */}
+        <div className="absolute inset-0 z-0 overflow-hidden opacity-30">
+           <img src={user.avatar} className="w-full h-full object-cover blur-3xl scale-125" alt="" />
+        </div>
+
+        {/* 顶部信息 */}
+        <div className="relative z-10 flex flex-col items-center pt-24 w-full">
+           <div className="w-28 h-28 rounded-2xl overflow-hidden shadow-2xl mb-6 ring-1 ring-white/10">
+             <img src={user.avatar} className="w-full h-full object-cover" alt="" />
+           </div>
+           <h2 className="text-white text-3xl font-medium mb-3 tracking-wide">{user.name}</h2>
+           <p className="text-white/60 text-base font-light">
+             {callStatus === 'ended' ? (durationSeconds > 0 ? '通话已结束' : '通话已取消') : (callStatus === 'calling' ? '正在呼叫...' : formatDuration(durationSeconds))}
+           </p>
+        </div>
+
+        {/* 中间区域 (可扩展) */}
+        <div className="flex-1"></div>
+
+        {/* 底部控制栏 */}
+        <div className="relative z-10 w-full px-10 pb-12">
+          {callStatus !== 'ended' && (
+            <div className="flex justify-between items-center">
+              {/* 麦克风 */}
+              <div className="flex flex-col items-center space-y-3">
+                <button 
+                  onClick={toggleMic}
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 ${isMicOn ? 'bg-white text-black' : 'bg-white/15 text-white'}`}
+                >
+                  {isMicOn ? <Mic size={32} /> : <MicOff size={32} />}
+                </button>
+                <span className="text-xs text-white/70">麦克风</span>
+              </div>
+
+              {/* 挂断 */}
+              <div className="flex flex-col items-center space-y-3 mx-4">
+                <button 
+                  onClick={() => handleHangup(true)}
+                  className="w-20 h-20 rounded-full bg-[#ff3b30] flex items-center justify-center shadow-lg shadow-red-900/20 active:scale-90 transition-transform"
+                >
+                  <PhoneOff size={40} className="text-white fill-current" />
+                </button>
+                <span className="text-xs text-white/70">挂断</span>
+              </div>
+
+              {/* 扬声器 */}
+              <div className="flex flex-col items-center space-y-3">
+                <button 
+                  onClick={toggleSpeaker}
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 ${isSpeakerOn ? 'bg-white text-black' : 'bg-white/15 text-white'}`}
+                >
+                  {isSpeakerOn ? <Volume2 size={32} /> : <VolumeX size={32} />}
+                </button>
+                <span className="text-xs text-white/70">扬声器</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="p1-react-call-overlay" ref={containerRef} className="fixed inset-0 z-[100] bg-gray-900 overflow-hidden select-none">
       <audio ref={remoteAudioRef} autoPlay className="hidden" />
