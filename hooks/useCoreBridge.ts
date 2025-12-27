@@ -28,7 +28,7 @@ avatar: `https://picsum.photos/seed/${window.state.myId}/200/200`,
     // Public Channel (Always First)
     chatList.push({
       id: 'all',
-      user: { id: 'all', name: '公共频道', avatar: '' }, 
+user: { id: 'all', name: '公共频道', avatar: 'https://picsum.photos/seed/all/200/200' },
       lastMessage: '[公共广播]',
       timestamp: '',
       unreadCount: unread['all'] || 0,

@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Chat } from '../types';
-import { BellOff, Sparkles, Globe } from 'lucide-react';
+import { BellOff, Sparkles } from 'lucide-react';
 
 interface ChatItemProps {
   chat: Chat;
@@ -76,10 +76,6 @@ const ChatItem: React.FC<ChatItemProps> = ({ chat, onClick, onLongPress }) => {
         {chat.isAi ? (
            <div className="w-[48px] h-[48px] rounded-[6px] bg-gradient-to-br from-[#2b2e4a] to-[#53354a] flex items-center justify-center shadow-sm">
              <Sparkles className="text-white w-6 h-6 opacity-90" />
-           </div>
-        ) : chat.id === 'all' ? (
-           <div className="w-[48px] h-[48px] rounded-[6px] bg-[#07C160] flex items-center justify-center shadow-sm">
-             <Globe className="text-white w-6 h-6" />
            </div>
         ) : (
           <img 
