@@ -1797,10 +1797,12 @@ const handleSendText = async () => {
                           borderBottomColor: 'transparent',
                         }}
                       ></div>
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center ${msg.text?.includes('取消') ? 'bg-[#FA5151]/15' : 'bg-[#FA9D3B]/15'}`}>
-                                              <Video size={14} className={msg.text?.includes('取消') ? 'text-[#FA5151]' : 'text-[#FA9D3B]'} />
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center mr-1 ${msg.text?.includes('取消') || msg.text?.includes('拒绝') ? 'bg-black/5' : 'bg-[#FA9D3B]/10'}`}>
+                                              <Video size={15} className={msg.text?.includes('取消') || msg.text?.includes('拒绝') ? 'text-gray-500' : 'text-[#FA9D3B]'} />
                                             </div>
-                      <span>{msg.text || '通话记录'}</span>
+                                            <span className={msg.text?.includes('取消') || msg.text?.includes('拒绝') ? 'text-gray-500' : 'text-[#191919]'}>
+                                              {msg.text || '通话记录'}
+                                            </span>
                     </div>
                   ) : isFile ? (
                     <div
