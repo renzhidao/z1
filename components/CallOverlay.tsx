@@ -63,6 +63,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const [pipPos, setPipPos] = useState({ x: 20, y: 100 });
 
   const [remoteHasVideo, setRemoteHasVideo] = useState(false);
+  const [localHasVideo, setLocalHasVideo] = useState(false);
 
 
 
@@ -84,7 +85,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  const localStreamRef = useRef<MediaStream | null>(null);
+
 
 
 
@@ -132,71 +133,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
 
 
-  // 获取本地摄像头（视频通话或手动开启时）
-
+  // 通知底层开关摄像头（不再自己获取流）
   useEffect(() => {
-
-    const startCamera = async () => {
-
-      try {
-
-        if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-
-          video: { facingMode: isFrontCamera ? 'user' : 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-
-          audio: true
-
-        });
-
-        localStreamRef.current = stream;
-
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-
-        setHasCameraPermission(true);
-
-        // 再次通知底层（不影响已有流）
-
-        callAction('attach', {
-
-          localVideo: localVideoRef.current,
-
-          remoteVideo: remoteVideoRef.current,
-
-          remoteAudio: remoteAudioRef.current,
-
-        });
-
-      } catch (err) {
-
-        console.error('Camera error:', err);
-
-        setHasCameraPermission(false);
-
-      }
-
-    };
-
-    const stopCamera = () => {
-
-      if (localStreamRef.current) {
-
-        localStreamRef.current.getTracks().forEach(t => t.stop());
-
-        localStreamRef.current = null;
-
-      }
-
-      if (localVideoRef.current) localVideoRef.current.srcObject = null;
-
-    };
-
-    if (isCamOn) startCamera(); else stopCamera();
-
-    return () => { if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop()); };
-
-  }, [isCamOn, isFrontCamera]);
+    callAction('setVideoEnabled', isCamOn);
+  }, [isCamOn]);
 
 
 
@@ -272,7 +212,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
     if (userAction) callAction('hangup');
 
-    if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
+
 
     setCallStatus('ended');
 
@@ -288,7 +228,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
     setIsMicOn(next);
 
-    if (localStreamRef.current) localStreamRef.current.getAudioTracks().forEach(t => t.enabled = next);
+
 
     callAction('setMuted', !next);
 
@@ -370,7 +310,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
   const fullscreenStyle = "absolute inset-0 w-full h-full z-0";
 
-  const pipStyle = "absolute w-32 h-48 rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none";
+  const pipStyle = "absolute w-32 h-48 rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none will-change-[left,top]";
 
 
 
@@ -380,13 +320,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
 
     const style = isPip 
 
-      ? { transform: `translate3d(${pipPos.x}px, ${pipPos.y}px, 0)`, transition: draggingRef.current ? 'none' : 'transform 0.3s ease' } 
+      ? { left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } 
 
       : {};
 
     const hasLocalVideo = isCamOn && hasCameraPermission === true;
 
-    const showV = isLocal ? hasLocalVideo : remoteHasVideo;
+    const showV = isLocal ? (localHasVideo && isCamOn) : remoteHasVideo;
 
 
 
