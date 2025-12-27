@@ -26,8 +26,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const [isMicOn, setIsMicOn] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(type === 'video');
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [isSwapped, setIsSwapped] = useState(false); 
   const [isDragging, setIsDragging] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   
   const pipPosRef = useRef({ x: 20, y: 100 });
   const [pipPosState, setPipPosState] = useState({ x: 20, y: 100 }); 
@@ -38,23 +40,68 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localContainerRef = useRef<HTMLDivElement>(null);
   const remoteContainerRef = useRef<HTMLDivElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
-  // --- 核心修复：使用底层 attach ---
+  // --- 核心：自主获取本地摄像头 ---
   useEffect(() => {
-    // 延迟绑定，确保 DOM 元素已渲染
-    const timer = setTimeout(() => {
+    const startCamera = async () => {
+      try {
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            facingMode: isFrontCamera ? 'user' : 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: true
+        });
+        
+        localStreamRef.current = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+        setHasCameraPermission(true);
+        
+        // 通知底层
         callAction('attach', {
           localVideo: localVideoRef.current,
           remoteVideo: remoteVideoRef.current,
           remoteAudio: remoteAudioRef.current,
         });
-        // 尝试播放音频
-        if (remoteAudioRef.current) remoteAudioRef.current.play().catch(() => {});
-    }, 300);
-    return () => clearTimeout(timer);
-  }, []);
+        
+      } catch (err) {
+        console.error("Camera error:", err);
+        setHasCameraPermission(false);
+      }
+    };
 
-  // 初始化样式
+    const stopCamera = () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+      }
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
+    };
+
+    if (isCamOn) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isCamOn, isFrontCamera]);
+
+  // 初始化样式 + PiP位置
   useEffect(() => {
     const style = document.createElement('style');
     style.innerHTML = `#p1-call-container, .p1-call-overlay, [id^="p1-call-"] { display: none !important; } #p1-react-call-overlay { display: block !important; }`;
@@ -101,6 +148,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const handleHangup = (userAction = true) => {
     if (callStatus === 'ended') return;
     if (userAction) callAction('hangup');
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+    }
     setCallStatus('ended');
     setTimeout(() => { onHangup(); }, 800);
   };
@@ -108,11 +158,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const toggleMic = () => { 
     const next = !isMicOn;
     setIsMicOn(next); 
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(t => t.enabled = next);
+    }
     callAction('setMuted', !next); 
   };
   const toggleSpeaker = () => { setIsSpeakerOn(p => !p); callAction('setSpeaker', !isSpeakerOn); };
   const toggleCam = () => { setIsCamOn(p => !p); callAction('setVideoEnabled', !isCamOn); };
-  const switchCamera = () => { callAction('switchCamera'); };
+  const switchCamera = () => { setIsFrontCamera(p => !p); callAction('switchCamera'); };
 
   const formatDuration = (secs: number) => {
     const mins = Math.floor(secs / 60);
@@ -180,9 +233,8 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     const className = isPip ? `${PIP_BASE} ${isDragging ? '' : TRANSITION}` : FULLSCREEN_CLASS;
     const style = isPip ? { transform: `translate3d(${pipPosState.x}px, ${pipPosState.y}px, 0)` } : {};
 
-    // 优化：移除 showRemoteVideo 的条件判断，始终允许显示远端视频
-    // 只有本地视频在摄像头关闭时才隐藏
-    const showVideo = isLocal ? isCamOn : true;
+    const showLocalVideo = isLocal && hasCameraPermission === true && isCamOn;
+    const showVideo = isLocal ? showLocalVideo : true;
 
     return (
       <div 
@@ -195,18 +247,21 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
         onPointerCancel={(e) => handlePipPointerUp(e, isPip)}
       >
         <div className="relative w-full h-full bg-black overflow-hidden">
-           {/* 视频层 */}
            <video 
              ref={videoRef}
              autoPlay playsInline muted={isLocal}
              className={`absolute inset-0 w-full h-full object-cover z-10 ${isLocal ? 'transform scale-x-[-1]' : ''} ${showVideo ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
            />
            
-           {/* 占位层 */}
            <div className="absolute inset-0 z-0 flex flex-col items-center justify-center bg-gray-800">
               {isLocal ? (
                   <div className="text-white/60 flex flex-col items-center">
-                     {!isCamOn ? (
+                     {hasCameraPermission === false ? (
+                         <>
+                            <VideoOff size={isPip ? 24 : 48} />
+                            {!isPip && <span className="mt-2 text-sm">无摄像头权限</span>}
+                         </>
+                     ) : !isCamOn ? (
                          <>
                             <VideoOff size={isPip ? 24 : 48} />
                             {!isPip && <span className="mt-2 text-sm">摄像头已关闭</span>}
