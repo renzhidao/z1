@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Mic, MicOff, Volume2, VolumeX, Video as VideoIcon, VideoOff, 
-  PhoneOff, Minimize2, RefreshCcw, Plus, User as UserIcon 
+  PhoneOff, Minimize2, RefreshCcw, Plus 
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -29,13 +29,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [isSwapped, setIsSwapped] = useState(false); 
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  
-  // 尺寸与位置状态
-  const [pipPos, setPipPos] = useState({ x: 20, y: 96 });
-  const [pipSize, setPipSize] = useState({ width: 128, height: 192 }); // 默认值，会被effect覆盖
-
+  const [pipPos, setPipPos] = useState({ x: 20, y: 100 });
+  const [pipSize, setPipSize] = useState({ width: 128, height: 192 });
   const [remoteHasVideo, setRemoteHasVideo] = useState(false);
-  const [selfAvatar, setSelfAvatar] = useState<string | null>(null);
 
   const draggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -48,30 +44,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  // 1. 读取本地头像
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('user') || localStorage.getItem('currentUser') || localStorage.getItem('p1_user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && parsed.avatar) {
-          setSelfAvatar(parsed.avatar);
-        }
-      }
-    } catch (e) { console.error('Failed to load self avatar', e); }
-  }, []);
-
-  // 2. 初始化 PiP 尺寸 (剩余空间的1/3) 和位置
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const h = (window.innerHeight - 96) / 3; // 高度占 (屏幕-96) 的 1/3
-      const w = h * (9 / 16);                 // 宽度按 9:16
-      setPipSize({ width: w, height: h });
-      setPipPos({ x: window.innerWidth - w - 16, y: 96 }); // 靠右，Top 96
-    }
-  }, []);
-
-  // 3. 隐藏原生 UI
+  // 隐藏原生 UI
   useEffect(() => {
     const style = document.createElement('style');
     style.setAttribute('data-p1-react-overlay-style', '1');
@@ -80,7 +53,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     return () => { try { document.head.removeChild(style); } catch (_) {} };
   }, []);
 
-  // 4. 挂载后 attach
+  // 挂载后 attach
   useEffect(() => {
     const t = setTimeout(() => {
       callAction('attach', {
@@ -93,7 +66,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     return () => clearTimeout(t);
   }, []);
 
-  // 5. 获取本地摄像头 (恢复 getUserMedia)
+  // 获取本地摄像头 (恢复原版逻辑)
   useEffect(() => {
     const startCamera = async () => {
       try {
@@ -127,7 +100,21 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     return () => { if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop()); };
   }, [isCamOn, isFrontCamera]);
 
-  // 6. 状态监听
+  // PiP 位置初始化
+  
+  // PiP 尺寸与位置初始化 (1/3高度 + 保持旧版Top)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const h = (window.innerHeight - 96) / 3;      // 高度占1/3
+      const w = h * (9 / 16);                // 宽度按 9:16
+      setPipSize({ width: w, height: h });
+      // 位置：靠右 (屏幕宽 - 小窗宽 - 16px边距)，Top保持旧版 96
+      setPipPos({ x: window.innerWidth - w - 16, y: 96 });
+    }
+  }, []);
+
+
+  // 状态监听
   useEffect(() => {
     const onStateChange = (e: CustomEvent) => {
       if (['connected', 'active'].includes((e as any).detail?.state)) setCallStatus('connected');
@@ -137,7 +124,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     return () => window.removeEventListener('p1-call-state-changed' as any, onStateChange);
   }, []);
 
-  // 7. 远端帧检测
+  // 远端帧检测
   useEffect(() => {
     const v = remoteVideoRef.current;
     if (!v) return;
@@ -149,7 +136,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     return () => { v.removeEventListener('loadedmetadata', update); v.removeEventListener('resize', update); clearInterval(intv); };
   }, []);
 
-  // 8. 计时
+  // 计时
   useEffect(() => {
     if (callStatus !== 'connected') return;
     const timer = setInterval(() => setDurationSeconds(p => p + 1), 1000);
@@ -178,7 +165,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // 拖拽逻辑 (限制范围使用 pipSize)
+  // 拖拽逻辑
   const onPipPointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     draggingRef.current = true; hasDraggedRef.current = false;
@@ -207,11 +194,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
   };
 
   const fullscreenStyle = "absolute inset-0 w-full h-full z-0";
-  // PiP 样式: top/left + 硬件加速
+  // [关键修改] top/left 布局 + 硬件加速hint
   const pipStyle = "absolute rounded-xl overflow-hidden border border-white/20 shadow-2xl z-20 cursor-move touch-none will-change-[left,top]";
 
+  // [关键逻辑] 视频是否可用判断
   const hasLocalVideo = isCamOn && hasCameraPermission === true;
   
+  // 拖拽事件包
   const pipHandlers = {
     onPointerDown: onPipPointerDown,
     onPointerMove: onPipPointerMove,
@@ -219,29 +208,18 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
     onPointerCancel: onPipPointerUp
   };
 
-  // 动态样式辅助函数
-  const getPanelStyle = (isPip: boolean) => {
-    if (!isPip) return {};
-    return {
-      left: pipPos.x, 
-      top: pipPos.y, 
-      width: pipSize.width, 
-      height: pipSize.height,
-      transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear'
-    };
-  };
-
   return (
     <div id="p1-react-call-overlay" ref={containerRef} className="fixed inset-0 z-[100] bg-gray-900 overflow-hidden select-none">
       <audio ref={remoteAudioRef} autoPlay className="hidden" />
 
-      {/* --- Remote Video Panel --- */}
+      {/* --- Remote Video Panel (展开写法，避免组件重渲染黑屏) --- */}
       <div 
         className={isSwapped ? pipStyle : fullscreenStyle}
-        style={getPanelStyle(isSwapped)}
+        style={isSwapped ? { width: pipSize.width, height: pipSize.height, left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } : {}}
         {...(isSwapped ? pipHandlers : {})}
       >
         <div className="absolute inset-0 flex items-center justify-center bg-black">
+           {/* 远端始终显示头像背景，直到有视频 */}
            <img src={user.avatar} className="absolute inset-0 w-full h-full object-cover opacity-35 blur-xl" alt="" />
            <div className="relative z-0 flex flex-col items-center">
              <img src={user.avatar} className={`${isSwapped ? 'w-12 h-12' : 'w-24 h-24'} rounded-2xl shadow-lg mb-2`} alt="" />
@@ -258,27 +236,17 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({ user, onHangup, type }
         )}
       </div>
 
-      {/* --- Local Video Panel (重点修复区域) --- */}
+      {/* --- Local Video Panel (展开写法，避免组件重渲染黑屏) --- */}
       <div 
         className={!isSwapped ? pipStyle : fullscreenStyle}
-        style={getPanelStyle(!isSwapped)}
+        style={!isSwapped ? { width: pipSize.width, height: pipSize.height, left: pipPos.x, top: pipPos.y, transition: draggingRef.current ? 'none' : 'left 0.2s linear, top 0.2s linear' } : {}}
         {...(!isSwapped ? pipHandlers : {})}
       >
         <div className="absolute inset-0 flex items-center justify-center bg-black">
            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
-              {/* 无视频时显示头像，无文字 */}
               {!hasLocalVideo && (
-                selfAvatar ? (
-                  <img 
-                    src={selfAvatar} 
-                    className={`rounded-full shadow-md object-cover bg-gray-200 ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`} 
-                    alt="Me" 
-                  />
-                ) : (
-                  <div className={`flex items-center justify-center rounded-full bg-[#e5e7eb] shadow-md ${!isSwapped ? 'w-16 h-16' : 'w-32 h-32'}`}>
-                    <UserIcon size={!isSwapped ? 32 : 64} className="text-[#9ca3af] fill-current" />
-                  </div>
-                )
+                // [关键修改] 去掉文字，只显图标
+                <VideoOff size={!isSwapped ? 22 : 44} />
               )}
            </div>
         </div>
